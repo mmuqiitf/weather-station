@@ -115,14 +115,20 @@ class IngestService
 
     private function calibratedValue(Device $device, int $sensorTypeId, float $raw, string $deviceTime): float
     {
-        $installation = SensorInstallation::query()
-            ->where('device_id', $device->id)
-            ->whereNull('removed_at')
-            ->whereHas('sensor', fn ($q) => $q->where('sensor_type_id', $sensorTypeId))
-            ->with(['sensor.calibrations' => fn ($q) => $q->where('effective_at', '<=', $deviceTime)->latest('effective_at')])
-            ->first();
+        // History-correct: resolve which physical sensor was mounted at device_time,
+        // then apply the calibration effective at device_time. Old rows never change
+        // when calibrations are edited later (§B.3).
+        $sensorId = $this->sensorIdAt($device->id, $sensorTypeId, $deviceTime);
 
-        $calibration = $installation?->sensor?->calibrations->first();
+        if ($sensorId === null) {
+            return $raw;
+        }
+
+        $calibration = SensorCalibration::query()
+            ->where('sensor_id', $sensorId)
+            ->where('effective_at', '<=', $deviceTime)
+            ->latest('effective_at')
+            ->first();
 
         if ($calibration instanceof SensorCalibration) {
             return ((float) $calibration->offset) + ((float) $calibration->scale) * $raw;
