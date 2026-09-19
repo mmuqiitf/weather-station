@@ -1,0 +1,24 @@
+sequenceDiagram
+    autonumber
+    participant S as Sensor fisik
+    participant F as Firmware device<br/>(buffer + seq + ts)
+    participant T as Transport<br/>HTTP POST
+    participant A as Auth<br/>device.auth Bearer api_key
+    participant V as Validasi payload<br/>schema + range
+    participant D as Normalisasi & dedup<br/>insertOrIgnore(device,time,type)
+    participant E as Enrichment<br/>kalibrasi + quality + mm_delta
+    participant R as DB raw<br/>sensor_readings hypertable
+    participant G as Agregasi<br/>cagg 1h/1d (refresh 1h)
+    participant Q as API query<br/>interval coercion + cap 5000
+    participant UI as Frontend chart<br/>WIB display
+
+    S->>F: 1. ukur tiap 60 dtk, buffer saat offline
+    F->>T: 2. POST /ingest/telemetry[.batch] (device_time=ts UTC)
+    T->>A: 3. Bearer api_key, sha256(api_key_hash), tolak decommissioned
+    A->>V: 4. schema Laravel FormRequest; -999→suspect, luar min/max→out_of_range (disimpan, tidak dibuang)
+    V->>D: 5. unique(device,time,sensor_type) ON CONFLICT DO NOTHING → accepted/duplicates
+    D->>E: 6. sensorIdAt(device_time) + kalibrasi effective_at≤device_time; rain mm_delta
+    E->>R: 7. bulk insert raw+calibrated, received_at=now UTC
+    R->>G: 8. batch/late data → cagg refresh memperbaiki bucket lama otomatis
+    G->>Q: 9a. raw/1m dari hypertable, 1h/1d dari cagg
+    Q->>UI: 9b. JSON {points:[{t,v,n}]}, gap=garis putus, rain gap=bar absen

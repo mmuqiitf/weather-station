@@ -1,0 +1,100 @@
+erDiagram
+    locations ||--o{ devices : "location_id nullable, nullOnDelete"
+    devices ||--o{ device_heartbeats : "cascadeOnDelete"
+    devices ||--o{ sensor_installations : "cascadeOnDelete"
+    devices ||--o{ sensor_readings : "cascadeOnDelete"
+    devices ||--o{ reading_aggregates : "cascadeOnDelete"
+    sensor_types ||--o{ sensors : "restrictOnDelete"
+    sensor_types ||--o{ sensor_readings : "restrictOnDelete"
+    sensor_types ||--o{ reading_aggregates : "restrictOnDelete"
+    sensors ||--o{ sensor_installations : "cascadeOnDelete"
+    sensors ||--o{ sensor_calibrations : "cascadeOnDelete"
+    sensors ||--o{ sensor_readings : "nullOnDelete nullable"
+
+    locations {
+        bigint id PK
+        varchar name
+        decimal_10_7 latitude
+        decimal_10_7 longitude
+        decimal_8_2 altitude_m "nullable"
+        timestamptz created_at
+        timestamptz updated_at
+    }
+    devices {
+        bigint id PK
+        varchar device_id UK "e.g. WS-GRT-001"
+        varchar name
+        bigint location_id FK_nullable
+        varchar status "provisioned|active|decommissioned"
+        char_64 api_key_hash UK "sha256 hex, secret never stored"
+        varchar firmware_version "nullable"
+        timestamptz last_seen_at "nullable, drives online/offline"
+        timestamptz deleted_at "nullable, soft delete"
+        timestamptz created_at
+        timestamptz updated_at
+    }
+    device_heartbeats {
+        bigint id PK
+        bigint device_id FK
+        timestamptz device_time "authority"
+        timestamptz received_at "server clock"
+        varchar firmware_version "nullable"
+        decimal_5_2 battery_v "nullable"
+        int rssi "nullable"
+        bigint uptime_s "nullable"
+    }
+    sensor_types {
+        bigint id PK
+        varchar code UK "temp_air|humidity|pressure|rain_counter|wind_speed|wind_dir|solar_rad"
+        varchar unit
+        decimal_12_4 min_value "nullable"
+        decimal_12_4 max_value "nullable"
+        int precision
+    }
+    sensors {
+        bigint id PK
+        varchar serial UK "physical instance"
+        bigint sensor_type_id FK
+    }
+    sensor_installations {
+        bigint id PK
+        bigint sensor_id FK
+        bigint device_id FK
+        timestamptz installed_at
+        timestamptz removed_at "nullable, NULL=open"
+    }
+    sensor_calibrations {
+        bigint id PK
+        bigint sensor_id FK
+        decimal_12_4 offset
+        decimal_12_6 scale
+        timestamptz effective_at "correction valid since"
+    }
+    sensor_readings {
+        bigint id PK
+        bigint device_id FK
+        bigint sensor_type_id FK
+        bigint sensor_id FK_nullable "resolved at device_time"
+        timestamptz device_time "series axis, UTC"
+        timestamptz received_at "server clock"
+        decimal_14_4 raw_value "immutable as-sent"
+        decimal_14_4 value "calibrated"
+        decimal_12_4 mm_delta "nullable, rain only"
+        varchar quality "ok|out_of_range|suspect"
+    }
+    reading_aggregates {
+        bigint id PK
+        bigint device_id FK
+        bigint sensor_type_id FK
+        varchar interval "1h|1d"
+        timestamptz bucket
+        decimal avg_value "nullable"
+        decimal min_value "nullable"
+        decimal max_value "nullable"
+        decimal sum_value "nullable"
+        int sample_count
+    }
+    users {
+        bigint id PK "dashboard auth placeholder"
+        varchar email UK
+    }
