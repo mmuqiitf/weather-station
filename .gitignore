@@ -14,12 +14,3 @@ Thumbs.db
 .vscode/
 public/build
 public/hot
-.mcp.json
-.agents/mcp_config.json
-.agents/
-.claude/
-.codex/
-.grok/
-.pi/
-.zed/
-opencode.json
