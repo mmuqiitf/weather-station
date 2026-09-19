@@ -1,0 +1,16 @@
+.env
+.phpunit.result.cache
+/vendor/
+/node_modules/
+Homestead.json
+Homestead.yaml
+Thumbs.db
+*.log
+.DS_Store
+.env.backup
+.env.production
+.phpactor.json
+.idea/
+.vscode/
+public/build
+public/hot
