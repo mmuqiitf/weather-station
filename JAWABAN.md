@@ -36,11 +36,11 @@
 
 ## E — API
 
-**Cegah response meledak 1 tahun?** Server memaksa interval naik (raw hanya ≤24 jam, 1m ≤7 hari, 1h ≤90 hari, selebihnya 1d) + batas 5000 titik (422 `range_too_large` bila terlewati) + agregasi dihitung di DB (cagg), bukan di browser. Klien selalu diberi tahu lewat `meta.interval_applied`.
+**Cegah response meledak 1 tahun?** Server memaksa interval naik (raw hanya ≤24 jam, 1m ≤7 hari, 1h ≤90 hari, selebihnya 1d) + batas 5000 titik (422 bila terlewati) + agregasi dihitung di DB (cagg), bukan di browser. Klien selalu diberi tahu lewat `interval_applied` top-level.
 
 **Auth device vs user?** Berbeda. Device: Bearer `api_key` berumur panjang, yang tersimpan hanya hash sha256-nya, rate limit per device, tanpa scope. User dashboard: token Sanctum dengan masa kedaluwarsa dan permission. Keduanya dipisah karena masa berlaku, risiko, dan pola penyalahgunaannya berbeda.
 
-**Rate limiting ingestion?** Kuncinya per device yang terautentikasi (60/menit), cadangan per IP bila belum terautentikasi; responsnya 429 `{code: rate_limited}` dengan envelope standar. Batasan per device tetap adil walau banyak device berbagi satu IP (NAT); sebaliknya, batasan per IP akan membuat pengguna lain yang tidak bersalah ikut kena imbasnya.
+**Rate limiting ingestion?** Kuncinya per device yang terautentikasi (60/menit), cadangan per IP bila belum terautentikasi; responsnya 429 `{"message": "Too many ingestion requests."}`. Batasan per device tetap adil walau banyak device berbagi satu IP (NAT); sebaliknya, batasan per IP akan membuat pengguna lain yang tidak bersalah ikut kena imbasnya.
 
 ## G — Frontend
 

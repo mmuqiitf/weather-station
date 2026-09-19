@@ -16,7 +16,6 @@ export default function OverviewPage() {
   const { data, error, isLoading } = useSWR<{ devices: Overview["devices"]; counts: Overview["counts"] }>(
     "/dashboard/overview",
   );
-  // Backend envelopes {data}; the SWR fetcher unwraps to data already.
   const overview = data as unknown as Overview | undefined;
 
   return (

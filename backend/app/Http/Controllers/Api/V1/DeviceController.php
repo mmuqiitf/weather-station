@@ -2,24 +2,25 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Http\Controllers\Controller;
+use App\Http\Requests\ListDevicesRequest;
+use App\Http\Requests\StoreDeviceRequest;
+use App\Http\Requests\UpdateDeviceRequest;
+use App\Http\Resources\DeviceResource;
+use App\Http\Resources\LocationResource;
 use App\Models\Device;
 use App\Models\Location;
+use App\Support\DeviceLookup;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
+use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Http\Response;
 use Illuminate\Support\Str;
-use Illuminate\Validation\Rule;
 
-class DeviceController extends ApiController
+class DeviceController extends Controller
 {
-    public function index(Request $request): JsonResponse
+    public function index(ListDevicesRequest $request): AnonymousResourceCollection
     {
-        $validated = $request->validate([
-            'status' => ['nullable', Rule::in([Device::STATUS_PROVISIONED, Device::STATUS_ACTIVE, Device::STATUS_DECOMMISSIONED])],
-            'location_id' => ['nullable', 'integer'],
-            'q' => ['nullable', 'string', 'max:100'],
-            'page' => ['nullable', 'integer', 'min:1'],
-            'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
-        ]);
+        $validated = $request->validated();
 
         $query = Device::query()->with('location')->orderBy('id');
 
@@ -36,25 +37,12 @@ class DeviceController extends ApiController
             $query->where(fn ($w) => $w->where('device_id', 'like', $q)->orWhere('name', 'like', $q));
         }
 
-        $paginator = $query->paginate($validated['per_page'] ?? 15);
-
-        $paginator->getCollection()->transform(fn (Device $d) => $this->shape($d));
-
-        return $this->paginated($request, $paginator);
+        return DeviceResource::collection($query->paginate($validated['per_page'] ?? 15));
     }
 
-    public function store(Request $request): JsonResponse
+    public function store(StoreDeviceRequest $request): JsonResponse
     {
-        $validated = $request->validate([
-            'device_id' => ['required', 'string', 'max:64', 'unique:devices,device_id'],
-            'name' => ['required', 'string', 'max:255'],
-            'location_id' => ['nullable', 'integer', 'exists:locations,id'],
-            'location' => ['nullable', 'array'],
-            'location.name' => ['required_with:location', 'string', 'max:255'],
-            'location.latitude' => ['required_with:location', 'numeric', 'between:-90,90'],
-            'location.longitude' => ['required_with:location', 'numeric', 'between:-180,180'],
-            'location.altitude_m' => ['nullable', 'numeric'],
-        ]);
+        $validated = $request->validated();
 
         if (empty($validated['location_id']) && ! empty($validated['location'])) {
             $validated['location_id'] = Location::query()->create($validated['location'])->id;
@@ -70,99 +58,60 @@ class DeviceController extends ApiController
             'api_key_hash' => hash('sha256', $plainKey),
         ]);
 
-        $data = $this->shape($device->load('location'));
-        $data['api_key_plain'] = $plainKey;
-
-        return $this->envelope($request, $data, 201);
+        return DeviceResource::make($device->load('location'))->withPlainKey($plainKey)
+            ->response()->setStatusCode(201);
     }
 
-    public function show(Request $request, string $id): JsonResponse
+    public function show(string $id): DeviceResource
     {
-        $device = $this->findDevice($id);
-
-        if ($device === null) {
-            return $this->error($request, 'device_not_found', 'Device not found.', 404);
-        }
-
-        return $this->envelope($request, $this->shape($device->load('location')));
+        return new DeviceResource(DeviceLookup::findOrFail($id)->load('location'));
     }
 
-    public function update(Request $request, string $id): JsonResponse
+    public function update(UpdateDeviceRequest $request, string $id): DeviceResource
     {
-        $device = $this->findDevice($id);
-
-        if ($device === null) {
-            return $this->error($request, 'device_not_found', 'Device not found.', 404);
-        }
-
-        $validated = $request->validate([
-            'name' => ['sometimes', 'string', 'max:255'],
-            'location_id' => ['sometimes', 'nullable', 'integer', 'exists:locations,id'],
-            'status' => ['sometimes', Rule::in([Device::STATUS_PROVISIONED, Device::STATUS_ACTIVE, Device::STATUS_DECOMMISSIONED])],
-        ]);
+        $device = DeviceLookup::findOrFail($id);
+        $validated = $request->validated();
 
         // Controlled lifecycle: provisioned -> active -> decommissioned. No resurrection.
-        if (isset($validated['status']) && ! $this->allowedTransition($device->status, $validated['status'])) {
-            return $this->error($request, 'invalid_status_transition',
-                "Cannot transition {$device->status} -> {$validated['status']}.", 422);
+        if (isset($validated['status']) && ! self::allowedTransition($device->status, $validated['status'])) {
+            abort(422, "Cannot transition {$device->status} -> {$validated['status']}.");
         }
 
         $device->fill($validated)->save();
 
-        return $this->envelope($request, $this->shape($device->fresh('location')));
+        return new DeviceResource($device->fresh('location'));
     }
 
-    public function destroy(Request $request, string $id): JsonResponse
+    public function destroy(string $id): Response
     {
-        $device = $this->findDevice($id);
-
-        if ($device === null) {
-            return $this->error($request, 'device_not_found', 'Device not found.', 404);
-        }
-
         // Soft delete: historical readings/heartbeats retained (see JAWABAN.md A).
-        $device->delete();
+        DeviceLookup::findOrFail($id)->delete();
 
-        return response()->json(null, 204);
+        return response()->noContent();
     }
 
-    public function rotate(Request $request, string $id): JsonResponse
+    public function rotate(string $id): JsonResponse
     {
-        $device = $this->findDevice($id);
-
-        if ($device === null) {
-            return $this->error($request, 'device_not_found', 'Device not found.', 404);
-        }
+        $device = DeviceLookup::findOrFail($id);
 
         $plainKey = 'ws_'.Str::random(32);
         $device->forceFill(['api_key_hash' => hash('sha256', $plainKey)])->save();
 
-        return $this->envelope($request, ['device_id' => $device->device_id, 'api_key_plain' => $plainKey]);
+        return response()->json(['device_id' => $device->device_id, 'api_key_plain' => $plainKey]);
     }
 
-    public function indexLocations(Request $request): JsonResponse
+    public function indexLocations(): AnonymousResourceCollection
     {
-        $locations = Location::query()->orderBy('name')->get()->map(fn (Location $l) => [
-            'id' => $l->id,
-            'name' => $l->name,
-            'latitude' => (float) $l->latitude,
-            'longitude' => (float) $l->longitude,
-            'altitude_m' => $l->altitude_m !== null ? (float) $l->altitude_m : null,
-        ]);
-
-        return $this->envelope($request, $locations);
+        return LocationResource::collection(Location::query()->orderBy('name')->get());
     }
 
-    public function health(Request $request, string $id): JsonResponse    {
-        $device = $this->findDevice($id);
-
-        if ($device === null) {
-            return $this->error($request, 'device_not_found', 'Device not found.', 404);
-        }
+    public function health(string $id): JsonResponse
+    {
+        $device = DeviceLookup::findOrFail($id);
 
         $latest = $device->heartbeats()->latest('device_time')->first();
 
-        return $this->envelope($request, [
+        return response()->json([
             'device_id' => $device->device_id,
             'status' => $device->status,
             'is_online' => $device->isOnline(),
@@ -173,7 +122,7 @@ class DeviceController extends ApiController
         ]);
     }
 
-    private function allowedTransition(string $from, string $to): bool
+    private static function allowedTransition(string $from, string $to): bool
     {
         if ($from === $to) {
             return true;
@@ -184,25 +133,5 @@ class DeviceController extends ApiController
             Device::STATUS_ACTIVE => $to === Device::STATUS_DECOMMISSIONED,
             default => false,
         };
-    }
-
-    private function shape(Device $device): array
-    {
-        return [
-            'id' => $device->id,
-            'device_id' => $device->device_id,
-            'name' => $device->name,
-            'status' => $device->status,
-            'is_online' => $device->isOnline(),
-            'last_seen_at' => $device->last_seen_at?->toIso8601String(),
-            'firmware_version' => $device->firmware_version,
-            'location' => $device->location ? [
-                'id' => $device->location->id,
-                'name' => $device->location->name,
-                'latitude' => (float) $device->location->latitude,
-                'longitude' => (float) $device->location->longitude,
-                'altitude_m' => $device->location->altitude_m !== null ? (float) $device->location->altitude_m : null,
-            ] : null,
-        ];
     }
 }

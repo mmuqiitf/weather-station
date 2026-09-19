@@ -111,7 +111,7 @@ export default function DeviceDetailPage({ params }: { params: Promise<{ id: str
   const wind = usePoints(id, "wind_speed", cfg.rain, from, to);
   const windDir = usePoints(id, "wind_dir", cfg.rain, from, to);
 
-  const latestData = latest.data as unknown as LatestResponse | undefined;
+  const latestData = latest.data;
 
   // Merge temp + humidity by timestamp for the dual-axis chart.
   const merged = (() => {

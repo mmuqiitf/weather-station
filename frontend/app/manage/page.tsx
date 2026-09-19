@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import useSWR from "swr";
-import { api, clearToken } from "@/lib/api";
+import { api, clearToken, type Paginated, type Resource } from "@/lib/api";
 import { formatWib } from "@/lib/format";
 import type { DeviceDetail, DeviceLocation, Sensor, SensorType } from "@/lib/types";
 
@@ -32,14 +32,14 @@ export default function ManagePage() {
     page: String(page),
   }).toString()}`;
   const { data, error, isLoading, mutate } = useSWR(query, (p: string) =>
-    api.raw<DeviceDetail[]>(p),
+    api.get<Paginated<DeviceDetail>>(p),
   );
-  const sensors = useSWR("/sensors", (p: string) => api.raw<Sensor[]>(p));
-  const types = useSWR("/sensor-types", (p: string) => api.get<SensorType[]>(p));
-  const locations = useSWR("/locations", (p: string) => api.get<DeviceLocation[]>(p));
+  const sensors = useSWR("/sensors", (p: string) => api.get<Paginated<Sensor>>(p));
+  const types = useSWR("/sensor-types", (p: string) => api.get<Resource<SensorType[]>>(p));
+  const locations = useSWR("/locations", (p: string) => api.get<Resource<DeviceLocation[]>>(p));
 
   const devices = data?.data ?? [];
-  const pagination = data?.meta.pagination;
+  const pagination = data?.meta;
 
   function logout() {
     clearToken();
@@ -50,8 +50,13 @@ export default function ManagePage() {
     e.preventDefault();
     setMsg(null);
     try {
-      const created = await api.post<DeviceDetail & { api_key_plain: string }>("/devices", form);
-      setMsg(`Device ${created.device_id} dibuat. API key (sekali tampil): ${created.api_key_plain}`);
+      const created = await api.post<Resource<DeviceDetail & { api_key_plain: string }>>(
+        "/devices",
+        form,
+      );
+      setMsg(
+        `Device ${created.data.device_id} dibuat. API key (sekali tampil): ${created.data.api_key_plain}`,
+      );
       setForm({ device_id: "", name: "" });
       mutate();
       sensors.mutate();
@@ -68,8 +73,8 @@ export default function ManagePage() {
       if (edit.name) body.name = edit.name;
       if (edit.status) body.status = edit.status;
       if (edit.location_id) body.location_id = edit.location_id;
-      const updated = await api.patch<DeviceDetail>(`/devices/${edit.device_id}`, body);
-      setMsg(`Device ${updated.device_id} diperbarui (status: ${updated.status}).`);
+      const updated = await api.patch<Resource<DeviceDetail>>(`/devices/${edit.device_id}`, body);
+      setMsg(`Device ${updated.data.device_id} diperbarui (status: ${updated.data.status}).`);
       setEdit({ device_id: "", name: "", status: "", location_id: "" });
       mutate();
     } catch (err) {
@@ -130,7 +135,7 @@ export default function ManagePage() {
     }
   }
 
-  const locationOptions = (locations.data ?? []) as DeviceLocation[];
+  const locationOptions = locations.data?.data ?? [];
   const sensorOptions = sensors.data?.data ?? [];
 
   return (
@@ -379,7 +384,7 @@ export default function ManagePage() {
           <button type="submit" className="rounded-md border px-3 py-1.5 text-sm">Simpan</button>
         </form>
         <p className="mt-2 text-xs text-muted-foreground">
-          Tipe sensor: {((types.data ?? []) as SensorType[]).map((t) => t.code).join(", ") || "memuat…"}
+          Tipe sensor: {(types.data?.data ?? []).map((t) => t.code).join(", ") || "memuat…"}
         </p>
       </section>
     </div>

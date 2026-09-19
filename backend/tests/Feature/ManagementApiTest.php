@@ -34,16 +34,18 @@ class ManagementApiTest extends TestCase
         $this->assertNotEmpty($create->json('data.api_key_plain'));
 
         $list = $this->getJson('/api/v1/devices?status=provisioned&q=WS-T');
-        $list->assertOk()->assertJsonPath('meta.pagination.total', 1);
+        $list->assertOk()->assertJsonPath('meta.total', 1)
+            ->assertJsonPath('data.0.device_id', 'WS-T-001')
+            ->assertJsonPath('data.0.location.name', 'Garut');
 
         // Illegal jump provisioned -> decommissioned is rejected.
         $this->patchJson('/api/v1/devices/WS-T-001', ['status' => 'decommissioned'])->assertStatus(422);
 
         $this->patchJson('/api/v1/devices/WS-T-001', ['status' => 'active'])->assertOk();
-        $this->getJson('/api/v1/devices/WS-T-001/health')->assertOk()->assertJsonPath('data.is_online', false);
+        $this->getJson('/api/v1/devices/WS-T-001/health')->assertOk()->assertJsonPath('is_online', false);
 
         $this->postJson('/api/v1/devices/WS-T-001/credentials/rotate')->assertOk()
-            ->assertJsonStructure(['data' => ['api_key_plain']]);
+            ->assertJsonStructure(['api_key_plain']);
 
         $this->delete('/api/v1/devices/WS-T-001')->assertNoContent();
         $this->assertSoftDeleted('devices', ['device_id' => 'WS-T-001']);
@@ -78,8 +80,9 @@ class ManagementApiTest extends TestCase
 
     public function test_readings_endpoints_need_known_device(): void
     {
-        $this->getJson('/api/v1/readings?device_id=NOPE')->assertStatus(404);
+        $this->getJson('/api/v1/readings?device_id=NOPE')->assertStatus(404)
+            ->assertJsonPath('message', 'Device not found.');
         $this->getJson('/api/v1/devices/NOPE/readings/latest')->assertStatus(404);
-        $this->getJson('/api/v1/dashboard/overview')->assertOk()->assertJsonStructure(['data' => ['devices', 'counts']]);
+        $this->getJson('/api/v1/dashboard/overview')->assertOk()->assertJsonStructure(['devices', 'counts']);
     }
 }

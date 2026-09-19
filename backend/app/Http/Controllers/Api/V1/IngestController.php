@@ -3,98 +3,62 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\BatchTelemetryRequest;
+use App\Http\Requests\HeartbeatRequest;
+use App\Http\Requests\TelemetryRequest;
 use App\Models\Device;
 use App\Services\IngestService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 
 class IngestController extends Controller
 {
-    public function telemetry(Request $request, IngestService $ingest): JsonResponse
+    public function telemetry(TelemetryRequest $request, IngestService $ingest): JsonResponse
     {
-        $validated = $request->validate([
-            'device_id' => ['required', 'string'],
-            'fw' => ['nullable', 'string'],
-            'ts' => ['required', 'integer', 'min:0'],
-            'seq' => ['nullable', 'integer', 'min:0'],
-            'battery_v' => ['nullable', 'numeric'],
-            'rssi' => ['nullable', 'integer'],
-            'readings' => ['required', 'array', 'min:1'],
-            'readings.*.s' => ['required', 'string'],
-            'readings.*.v' => ['required', 'numeric'],
-        ]);
+        $validated = $request->validated();
 
-        /** @var Device $device */
-        $device = $request->attributes->get('device');
-
-        if ($validated['device_id'] !== $device->device_id) {
-            return $this->error($request, 'device_mismatch', 'Payload device_id does not match authenticated device.', 403);
-        }
+        $device = self::device($request);
+        self::assertOwnership($device, $validated['device_id']);
 
         $result = $ingest->ingestTelemetry($device, [
             'ts' => $validated['ts'],
-            'battery_v' => isset($validated['battery_v']) ? $validated['battery_v'] : null,
-            'rssi' => isset($validated['rssi']) ? $validated['rssi'] : null,
+            'battery_v' => $validated['battery_v'] ?? null,
+            'rssi' => $validated['rssi'] ?? null,
             'readings' => $validated['readings'],
         ]);
 
         if ($result['rejected'] !== []) {
-            return $this->error($request, $result['rejected'][0]['code'], 'Payload rejected.', 422, $result['rejected']);
+            throw ValidationException::withMessages(
+                collect($result['rejected'])->mapWithKeys(fn ($item) => [
+                    "payload.{$item['index']}" => self::rejectionMessage($item['code'] ?? ''),
+                ])->all()
+            );
         }
 
-        if ($result['duplicates'] > 0) {
-            return $this->envelope($request, $result, 200);
-        }
-
-        return $this->envelope($request, $result, 201);
+        return response()->json($result, $result['duplicates'] > 0 ? 200 : 201);
     }
 
-    public function batch(Request $request, IngestService $ingest): JsonResponse
+    public function batch(BatchTelemetryRequest $request, IngestService $ingest): JsonResponse
     {
-        $validated = $request->validate([
-            'device_id' => ['required', 'string'],
-            'fw' => ['nullable', 'string'],
-            'batch' => ['required', 'array', 'min:1', 'max:'.IngestService::MAX_BATCH],
-            'batch.*.ts' => ['required', 'integer', 'min:0'],
-            'batch.*.seq' => ['nullable', 'integer', 'min:0'],
-            'batch.*.battery_v' => ['nullable', 'numeric'],
-            'batch.*.rssi' => ['nullable', 'integer'],
-            'batch.*.readings' => ['required', 'array', 'min:1'],
-            'batch.*.readings.*.s' => ['required', 'string'],
-            'batch.*.readings.*.v' => ['required', 'numeric'],
-        ]);
+        $validated = $request->validated();
 
-        /** @var Device $device */
-        $device = $request->attributes->get('device');
-
-        if ($validated['device_id'] !== $device->device_id) {
-            return $this->error($request, 'device_mismatch', 'Payload device_id does not match authenticated device.', 403);
-        }
+        $device = self::device($request);
+        self::assertOwnership($device, $validated['device_id']);
 
         $result = $ingest->ingestBatch($device, $validated['batch']);
 
         $status = $result['rejected'] !== [] || $result['duplicates'] > 0 ? 207 : 201;
 
-        return $this->envelope($request, $result, $status);
+        return response()->json($result, $status);
     }
 
-    public function heartbeat(Request $request): JsonResponse
+    public function heartbeat(HeartbeatRequest $request): JsonResponse
     {
-        $validated = $request->validate([
-            'device_id' => ['required', 'string'],
-            'ts' => ['required', 'integer', 'min:0'],
-            'fw' => ['nullable', 'string'],
-            'battery_v' => ['nullable', 'numeric'],
-            'rssi' => ['nullable', 'integer'],
-            'uptime_s' => ['nullable', 'integer', 'min:0'],
-        ]);
+        $validated = $request->validated();
 
-        /** @var Device $device */
-        $device = $request->attributes->get('device');
-
-        if ($validated['device_id'] !== $device->device_id) {
-            return $this->error($request, 'device_mismatch', 'Payload device_id does not match authenticated device.', 403);
-        }
+        $device = self::device($request);
+        self::assertOwnership($device, $validated['device_id']);
 
         $receivedAt = now();
 
@@ -113,30 +77,29 @@ class IngestController extends Controller
             'status' => $device->status === Device::STATUS_PROVISIONED ? Device::STATUS_ACTIVE : $device->status,
         ])->save();
 
-        return $this->envelope($request, ['received' => true], 200);
+        return response()->json(['received' => true]);
     }
 
-    /**
-     * @param  array<string, mixed>  $data
-     */
-    private function envelope(Request $request, array $data, int $status): JsonResponse
+    private static function device(Request $request): Device
     {
-        return response()->json([
-            'data' => $data,
-            'error' => null,
-            'meta' => ['request_id' => $request->attributes->get('request_id')],
-        ], $status);
+        /** @var Device $device */
+        $device = $request->attributes->get('device');
+
+        return $device;
     }
 
-    /**
-     * @param  array<int, array<string, string>>|null  $details
-     */
-    private function error(Request $request, string $code, string $message, int $status, ?array $details = null): JsonResponse
+    private static function assertOwnership(Device $device, string $payloadDeviceId): void
     {
-        return response()->json([
-            'data' => null,
-            'error' => ['code' => $code, 'message' => $message, 'details' => $details],
-            'meta' => ['request_id' => $request->attributes->get('request_id')],
-        ], $status);
+        abort_unless($payloadDeviceId === $device->device_id, 403,
+            'Payload device_id does not match authenticated device.');
+    }
+
+    private static function rejectionMessage(string $code): string
+    {
+        return match ($code) {
+            'unknown_sensor_type' => 'Unknown sensor type.',
+            'invalid_value' => 'Invalid reading value.',
+            default => 'Payload rejected.',
+        };
     }
 }

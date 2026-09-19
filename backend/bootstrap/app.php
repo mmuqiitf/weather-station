@@ -2,6 +2,7 @@
 
 use App\Http\Middleware\AssignRequestId;
 use App\Http\Middleware\AuthenticateDevice;
+use App\Http\Middleware\ForceJsonResponse;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -15,6 +16,7 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        $middleware->append(ForceJsonResponse::class);
         $middleware->append(AssignRequestId::class);
         $middleware->alias(['device.auth' => AuthenticateDevice::class]);
     })
@@ -22,16 +24,4 @@ return Application::configure(basePath: dirname(__DIR__))
         $exceptions->shouldRenderJsonWhen(
             fn (Request $request) => $request->is('api/*') || $request->expectsJson(),
         );
-        // Keep the standard envelope + machine-readable code for dashboard auth failures.
-        $exceptions->render(function (Illuminate\Auth\AuthenticationException $e, Request $request) {
-            if (! $request->is('api/*')) {
-                return null;
-            }
-
-            return response()->json([
-                'data' => null,
-                'error' => ['code' => 'user_unauthenticated', 'message' => 'Dashboard login required.'],
-                'meta' => ['request_id' => $request->attributes->get('request_id')],
-            ], 401);
-        });
     })->create();

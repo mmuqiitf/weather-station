@@ -24,13 +24,15 @@ export default function LoginPage() {
         body: JSON.stringify({ email, password }),
       });
       const body = (await res.json().catch(() => null)) as {
-        data?: { token?: string };
-        error?: { message?: string };
+        token?: string;
+        message?: string;
+        errors?: Record<string, string[]>;
       } | null;
-      if (!res.ok || !body?.data?.token) {
-        throw new Error(body?.error?.message ?? `Login gagal (${res.status})`);
+      if (!res.ok || !body?.token) {
+        const detail = body?.errors ? Object.values(body.errors).flat().join(" ") : undefined;
+        throw new Error(body?.message ?? detail ?? `Login gagal (${res.status})`);
       }
-      setToken(body.data.token);
+      setToken(body.token);
       router.push("/");
     } catch (err) {
       setError((err as Error).message);

@@ -15,7 +15,7 @@ class AuthenticateDevice
         $key = $request->bearerToken();
 
         if ($key === null || $key === '') {
-            return $this->unauthenticated($request);
+            return $this->unauthenticated();
         }
 
         $device = Device::query()
@@ -24,7 +24,7 @@ class AuthenticateDevice
             ->first();
 
         if ($device === null) {
-            return $this->unauthenticated($request);
+            return $this->unauthenticated();
         }
 
         $request->attributes->set('device', $device);
@@ -32,12 +32,8 @@ class AuthenticateDevice
         return $next($request);
     }
 
-    private function unauthenticated(Request $request): JsonResponse
+    private function unauthenticated(): JsonResponse
     {
-        return response()->json([
-            'data' => null,
-            'error' => ['code' => 'device_unauthenticated', 'message' => 'Invalid or missing device credentials.'],
-            'meta' => ['request_id' => $request->attributes->get('request_id')],
-        ], 401);
+        return response()->json(['message' => 'Invalid or missing device credentials.'], 401);
     }
 }

@@ -13,9 +13,18 @@ class AuthApiTest extends TestCase
     public function test_protected_routes_require_dashboard_login(): void
     {
         $this->getJson('/api/v1/devices')->assertStatus(401)
-            ->assertJsonPath('error.code', 'user_unauthenticated');
+            ->assertJsonPath('message', 'Unauthenticated.');
         $this->getJson('/api/v1/dashboard/overview')->assertStatus(401)
-            ->assertJsonPath('error.code', 'user_unauthenticated');
+            ->assertJsonPath('message', 'Unauthenticated.');
+    }
+
+    public function test_unauthenticated_without_accept_header_still_json(): void
+    {
+        // Plain clients (curl, firmware) send no Accept header — the API must
+        // answer 401 JSON, never redirect to the missing `login` route (500).
+        $this->get('/api/v1/devices/NOPE', ['Authorization' => 'Bearer bogus'])
+            ->assertStatus(401)
+            ->assertJsonPath('message', 'Unauthenticated.');
     }
 
     public function test_login_issues_token_and_me_works(): void
@@ -25,12 +34,12 @@ class AuthApiTest extends TestCase
         $login = $this->postJson('/api/v1/auth/login', [
             'email' => 'admin@weather.local', 'password' => 'password',
         ]);
-        $login->assertOk()->assertJsonStructure(['data' => ['token', 'token_type', 'user']]);
-        $token = $login->json('data.token');
+        $login->assertOk()->assertJsonStructure(['token', 'token_type', 'user']);
+        $token = $login->json('token');
         $this->assertNotEmpty($token);
 
         $this->getJson('/api/v1/auth/me', ['Authorization' => "Bearer {$token}"])
-            ->assertOk()->assertJsonPath('data.email', 'admin@weather.local');
+            ->assertOk()->assertJsonPath('email', 'admin@weather.local');
 
         $this->getJson('/api/v1/devices', ['Authorization' => "Bearer {$token}"])->assertOk();
 

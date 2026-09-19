@@ -2,15 +2,15 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Http\Controllers\Controller;
 use App\Models\Device;
 use App\Models\SensorReading;
 use App\Models\SensorType;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
 
-class DashboardController extends ApiController
+class DashboardController extends Controller
 {
-    public function overview(Request $request): JsonResponse
+    public function overview(): JsonResponse
     {
         $devices = Device::query()->with('location')->orderBy('id')->get();
 
@@ -37,7 +37,7 @@ class DashboardController extends ApiController
             ];
         });
 
-        return $this->envelope($request, [
+        return response()->json([
             'devices' => $cards,
             'counts' => [
                 'total' => $devices->count(),

@@ -2,113 +2,83 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Http\Controllers\Controller;
+use App\Http\Requests\AttachSensorRequest;
+use App\Http\Requests\ListSensorsRequest;
+use App\Http\Requests\StoreCalibrationRequest;
+use App\Http\Requests\StoreSensorRequest;
+use App\Http\Requests\StoreSensorTypeRequest;
+use App\Http\Requests\UpdateSensorRequest;
+use App\Http\Resources\SensorCalibrationResource;
+use App\Http\Resources\SensorInstallationResource;
+use App\Http\Resources\SensorResource;
+use App\Http\Resources\SensorTypeResource;
 use App\Models\Sensor;
 use App\Models\SensorCalibration;
 use App\Models\SensorInstallation;
 use App\Models\SensorType;
+use App\Support\DeviceLookup;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
+use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Http\Response;
 
-class SensorController extends ApiController
+class SensorController extends Controller
 {
-    public function indexTypes(Request $request): JsonResponse
+    public function indexTypes(): AnonymousResourceCollection
     {
-        $types = SensorType::query()->orderBy('code')->get()->map(fn (SensorType $t) => [
-            'id' => $t->id, 'code' => $t->code, 'unit' => $t->unit,
-            'min_value' => $t->min_value !== null ? (float) $t->min_value : null,
-            'max_value' => $t->max_value !== null ? (float) $t->max_value : null,
-            'precision' => $t->precision,
-        ]);
-
-        return $this->envelope($request, $types);
+        return SensorTypeResource::collection(SensorType::query()->orderBy('code')->get());
     }
 
-    public function storeType(Request $request): JsonResponse
+    public function storeType(StoreSensorTypeRequest $request): JsonResponse
     {
-        $validated = $request->validate([
-            'code' => ['required', 'string', 'max:64', 'unique:sensor_types,code'],
-            'unit' => ['required', 'string', 'max:32'],
-            'min_value' => ['nullable', 'numeric'],
-            'max_value' => ['nullable', 'numeric'],
-            'precision' => ['nullable', 'integer', 'min:0', 'max:6'],
-        ]);
-
-        $type = SensorType::query()->create($validated);
-
-        return $this->envelope($request, $type, 201);
+        return (new SensorTypeResource(SensorType::query()->create($request->validated())))
+            ->response()->setStatusCode(201);
     }
 
-    public function index(Request $request): JsonResponse
+    public function index(ListSensorsRequest $request): AnonymousResourceCollection
     {
-        $paginator = Sensor::query()->with(['type', 'installations'])
-            ->orderBy('id')->paginate($request->integer('per_page', 15));
+        $validated = $request->validated();
 
-        $paginator->getCollection()->transform(fn (Sensor $s) => [
-            'id' => $s->id, 'serial' => $s->serial,
-            'sensor_type' => $s->type?->code,
-            'current_device_id' => $s->installations->firstWhere('removed_at', null)?->device_id,
-        ]);
-
-        return $this->paginated($request, $paginator);
+        return SensorResource::collection(
+            Sensor::query()->with(['type', 'installations'])
+                ->orderBy('id')->paginate($validated['per_page'] ?? 15)
+        );
     }
 
-    public function store(Request $request): JsonResponse
+    public function store(StoreSensorRequest $request): JsonResponse
     {
-        $validated = $request->validate([
-            'serial' => ['required', 'string', 'max:64', 'unique:sensors,serial'],
-            'sensor_type_id' => ['required', 'integer', 'exists:sensor_types,id'],
-        ]);
-
-        return $this->envelope($request, Sensor::query()->create($validated), 201);
+        return (new SensorResource(Sensor::query()->create($request->validated())))
+            ->response()->setStatusCode(201);
     }
 
-    public function update(Request $request, int $id): JsonResponse
+    public function update(UpdateSensorRequest $request, int $id): SensorResource
     {
-        $sensor = Sensor::query()->find($id);
+        $sensor = Sensor::query()->find($id) ?? abort(404, 'Sensor not found.');
 
-        if ($sensor === null) {
-            return $this->error($request, 'sensor_not_found', 'Sensor not found.', 404);
-        }
+        $sensor->fill($request->validated())->save();
 
-        $validated = $request->validate(['serial' => ['sometimes', 'string', 'max:64', "unique:sensors,serial,{$id}"]]);
-        $sensor->fill($validated)->save();
-
-        return $this->envelope($request, $sensor->fresh());
+        return new SensorResource($sensor->fresh());
     }
 
-    public function destroy(Request $request, int $id): JsonResponse
+    public function destroy(int $id): Response
     {
-        $sensor = Sensor::query()->find($id);
+        $sensor = Sensor::query()->find($id) ?? abort(404, 'Sensor not found.');
 
-        if ($sensor === null) {
-            return $this->error($request, 'sensor_not_found', 'Sensor not found.', 404);
-        }
-
-        if ($sensor->installations()->whereNull('removed_at')->exists()) {
-            return $this->error($request, 'sensor_attached', 'Detach sensor before deleting.', 409);
-        }
+        abort_if($sensor->installations()->whereNull('removed_at')->exists(), 409,
+            'Detach sensor before deleting.');
 
         $sensor->delete();
 
-        return response()->json(null, 204);
+        return response()->noContent();
     }
 
-    public function attach(Request $request, string $id): JsonResponse
+    public function attach(AttachSensorRequest $request, string $id): JsonResponse
     {
-        $device = $this->findDevice($id);
+        $device = DeviceLookup::findOrFail($id);
+        $validated = $request->validated();
 
-        if ($device === null) {
-            return $this->error($request, 'device_not_found', 'Device not found.', 404);
-        }
-
-        $validated = $request->validate([
-            'sensor_id' => ['required', 'integer', 'exists:sensors,id'],
-            'installed_at' => ['nullable', 'date'],
-        ]);
-
-        if (SensorInstallation::query()->where('sensor_id', $validated['sensor_id'])->whereNull('removed_at')->exists()) {
-            return $this->error($request, 'sensor_already_attached', 'Sensor is attached elsewhere.', 409);
-        }
+        abort_if(SensorInstallation::query()->where('sensor_id', $validated['sensor_id'])->whereNull('removed_at')->exists(),
+            409, 'Sensor is attached elsewhere.');
 
         // Close any open installation of the same sensor type on this device (one slot per type).
         $sensor = Sensor::query()->find($validated['sensor_id']);
@@ -124,54 +94,35 @@ class SensorController extends ApiController
             'installed_at' => $validated['installed_at'] ?? now(),
         ]);
 
-        return $this->envelope($request, $installation, 201);
+        return (new SensorInstallationResource($installation))->response()->setStatusCode(201);
     }
 
-    public function detach(Request $request, string $id, int $sensorId): JsonResponse
+    public function detach(string $id, int $sensorId): SensorInstallationResource
     {
-        $device = $this->findDevice($id);
-
-        if ($device === null) {
-            return $this->error($request, 'device_not_found', 'Device not found.', 404);
-        }
+        $device = DeviceLookup::findOrFail($id);
 
         $installation = SensorInstallation::query()
-            ->where('device_id', $device->id)->where('sensor_id', $sensorId)->whereNull('removed_at')->first();
-
-        if ($installation === null) {
-            return $this->error($request, 'installation_not_found', 'Active installation not found.', 404);
-        }
+            ->where('device_id', $device->id)->where('sensor_id', $sensorId)->whereNull('removed_at')->first()
+            ?? abort(404, 'Active installation not found.');
 
         $installation->forceFill(['removed_at' => now()])->save();
 
-        return $this->envelope($request, $installation);
+        return new SensorInstallationResource($installation);
     }
 
-    public function indexCalibrations(Request $request, int $id): JsonResponse
+    public function indexCalibrations(int $id): AnonymousResourceCollection
     {
-        $sensor = Sensor::query()->find($id);
+        $sensor = Sensor::query()->find($id) ?? abort(404, 'Sensor not found.');
 
-        if ($sensor === null) {
-            return $this->error($request, 'sensor_not_found', 'Sensor not found.', 404);
-        }
-
-        return $this->envelope($request,
-            $sensor->calibrations()->orderByDesc('effective_at')->get());
+        return SensorCalibrationResource::collection(
+            $sensor->calibrations()->orderByDesc('effective_at')->get()
+        );
     }
 
-    public function storeCalibration(Request $request, int $id): JsonResponse
+    public function storeCalibration(StoreCalibrationRequest $request, int $id): JsonResponse
     {
-        $sensor = Sensor::query()->find($id);
-
-        if ($sensor === null) {
-            return $this->error($request, 'sensor_not_found', 'Sensor not found.', 404);
-        }
-
-        $validated = $request->validate([
-            'offset' => ['nullable', 'numeric'],
-            'scale' => ['nullable', 'numeric'],
-            'effective_at' => ['required', 'date'],
-        ]);
+        Sensor::query()->find($id) ?? abort(404, 'Sensor not found.');
+        $validated = $request->validated();
 
         $calibration = SensorCalibration::query()->create([
             'sensor_id' => $id,
@@ -180,6 +131,6 @@ class SensorController extends ApiController
             'effective_at' => $validated['effective_at'],
         ]);
 
-        return $this->envelope($request, $calibration, 201);
+        return (new SensorCalibrationResource($calibration))->response()->setStatusCode(201);
     }
 }

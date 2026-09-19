@@ -34,17 +34,14 @@ class AppServiceProvider extends ServiceProvider
         Scramble::configure()
             ->withDocumentTransformers(function (OpenApi $openApi): void {
                 $openApi->secure(SecurityScheme::http('bearer'));
-            });        RateLimiter::for('ingest', function (Request $request) {
+            });
+        RateLimiter::for('ingest', function (Request $request) {
             $device = $request->attributes->get('device');
 
             return Limit::perMinute(60)->by(
                 $device instanceof Device ? 'device:'.$device->id : $request->ip()
-            )->response(function () use ($request) {
-                return response()->json([
-                    'data' => null,
-                    'error' => ['code' => 'rate_limited', 'message' => 'Too many ingestion requests.'],
-                    'meta' => ['request_id' => $request->attributes->get('request_id')],
-                ], 429);
+            )->response(function () {
+                return response()->json(['message' => 'Too many ingestion requests.'], 429);
             });
         });
     }

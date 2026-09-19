@@ -2,25 +2,23 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Http\Controllers\Controller;
+use App\Http\Requests\ListReadingsRequest;
+use App\Http\Requests\ReadingSummaryRequest;
 use App\Models\SensorReading;
 use App\Models\SensorType;
+use App\Support\DeviceLookup;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
-use Illuminate\Validation\Rule;
 
-class ReadingController extends ApiController
+class ReadingController extends Controller
 {
     public const MAX_POINTS = 5000;
 
-    public function latest(Request $request, string $id): JsonResponse
+    public function latest(string $id): JsonResponse
     {
-        $device = $this->findDevice($id);
+        $device = DeviceLookup::findOrFail($id);
 
-        if ($device === null) {
-            return $this->error($request, 'device_not_found', 'Device not found.', 404);
-        }
-
-        $rows = SensorReading::query()
+        $sensors = SensorReading::query()
             ->where('device_id', $device->id)
             ->whereIn('id', fn ($q) => $q->selectRaw('MAX(id)')
                 ->from('sensor_readings')->where('device_id', $device->id)->groupBy('sensor_type_id'))
@@ -33,39 +31,26 @@ class ReadingController extends ApiController
                 'device_time' => $r->device_time->toIso8601String(),
             ])->values();
 
-        return $this->envelope($request, [
+        return response()->json([
             'device_id' => $device->device_id,
             'is_online' => $device->isOnline(),
             'last_seen_at' => $device->last_seen_at?->toIso8601String(),
-            'sensors' => $rows,
+            'sensors' => $sensors,
         ]);
     }
 
-    public function index(Request $request): JsonResponse
+    public function index(ListReadingsRequest $request): JsonResponse
     {
-        $validated = $request->validate([
-            'device_id' => ['required', 'string'],
-            'sensor_type' => ['nullable', 'string'],
-            'from' => ['nullable', 'date'],
-            'to' => ['nullable', 'date'],
-            'interval' => ['nullable', Rule::in(['raw', '1m', '1h', '1d'])],
-            'agg' => ['nullable', Rule::in(['avg', 'min', 'max', 'sum'])],
-            'page' => ['nullable', 'integer', 'min:1'],
-            'per_page' => ['nullable', 'integer', 'min:1', 'max:5000'],
-        ]);
+        $validated = $request->validated();
 
-        $device = $this->resolveDevice($validated['device_id']);
-
-        if ($device === null) {
-            return $this->error($request, 'device_not_found', 'Device not found.', 404);
-        }
+        $device = DeviceLookup::findOrFail($validated['device_id']);
 
         $from = isset($validated['from']) ? new \DateTimeImmutable($validated['from']) : new \DateTimeImmutable('-24 hours');
         $to = isset($validated['to']) ? new \DateTimeImmutable($validated['to']) : new \DateTimeImmutable('now');
         $rangeHours = max(1, ($to->getTimestamp() - $from->getTimestamp()) / 3600);
 
         $requested = $validated['interval'] ?? 'raw';
-        $interval = $this->coerceInterval($requested, $rangeHours);
+        $interval = self::coerceInterval($requested, $rangeHours);
         $agg = $validated['agg'] ?? 'avg';
 
         $query = SensorReading::query()->where('device_id', $device->id)
@@ -74,54 +59,41 @@ class ReadingController extends ApiController
 
         if (! empty($validated['sensor_type'])) {
             $typeId = SensorType::where('code', $validated['sensor_type'])->value('id');
-            if ($typeId === null) {
-                return $this->error($request, 'unknown_sensor_type', 'Unknown sensor_type.', 422);
-            }
+            abort_unless($typeId !== null, 422, 'Unknown sensor_type.');
             $query->where('sensor_type_id', $typeId);
         }
 
         // Forced aggregation guard: raw over a long range would explode the response.
         if ($interval === 'raw') {
             $perPage = min($validated['per_page'] ?? 1000, self::MAX_POINTS);
-            $paginator = $query->with('sensorType')->paginate($perPage);
-            $points = collect($paginator->items())->map(fn (SensorReading $r) => [
+            $paginator = $query->with('sensorType')->paginate($perPage)->through(fn (SensorReading $r) => [
                 't' => $r->device_time->toIso8601String(),
                 'sensor_type' => $r->sensorType->code,
                 'v' => (float) $r->value,
                 'q' => $r->quality,
-            ])->values();
-
-            return $this->paginated($request, $paginator->setCollection($points), [
-                'interval_requested' => $requested, 'interval_applied' => $interval, 'agg' => $agg,
             ]);
+
+            return response()->json(array_merge($paginator->toArray(), [
+                'interval_requested' => $requested, 'interval_applied' => $interval, 'agg' => $agg,
+            ]));
         }
 
-        $points = $this->aggregated($query, $interval, $agg, $validated['sensor_type'] ?? null);
+        $points = self::aggregated($query, $interval, $agg, $validated['sensor_type'] ?? null);
 
-        if (count($points) > self::MAX_POINTS) {
-            return $this->error($request, 'range_too_large',
-                'Too many points; narrow the range or use a coarser interval.', 422,
-                ['points' => count($points), 'max_points' => self::MAX_POINTS]);
-        }
+        abort_if(count($points) > self::MAX_POINTS, 422,
+            'Too many points ('.count($points).', max '.self::MAX_POINTS.'); narrow the range or use a coarser interval.');
 
-        return $this->envelope($request, ['points' => array_values($points)], 200, [
+        return response()->json([
+            'points' => array_values($points),
             'interval_requested' => $requested, 'interval_applied' => $interval, 'agg' => $agg,
         ]);
     }
 
-    public function summary(Request $request): JsonResponse
+    public function summary(ReadingSummaryRequest $request): JsonResponse
     {
-        $validated = $request->validate([
-            'device_id' => ['required', 'string'],
-            'from' => ['nullable', 'date'],
-            'to' => ['nullable', 'date'],
-        ]);
+        $validated = $request->validated();
 
-        $device = $this->resolveDevice($validated['device_id']);
-
-        if ($device === null) {
-            return $this->error($request, 'device_not_found', 'Device not found.', 404);
-        }
+        $device = DeviceLookup::findOrFail($validated['device_id']);
 
         $from = $validated['from'] ?? date('Y-m-d H:i:s', strtotime('-24 hours'));
         $to = $validated['to'] ?? date('Y-m-d H:i:s');
@@ -138,7 +110,7 @@ class ReadingController extends ApiController
         $rain = $rainId ? (float) (clone $base)->where('sensor_type_id', $rainId)->sum('mm_delta') : 0.0;
         $windMax = $windId ? (clone $base)->where('sensor_type_id', $windId)->max('value') : null;
 
-        return $this->envelope($request, [
+        return response()->json([
             'device_id' => $device->device_id,
             'from' => $from, 'to' => $to,
             'temp_min' => $temp?->mn !== null ? (float) $temp->mn : null,
@@ -149,7 +121,7 @@ class ReadingController extends ApiController
         ]);
     }
 
-    private function coerceInterval(string $requested, float $rangeHours): string
+    private static function coerceInterval(string $requested, float $rangeHours): string
     {
         // Server-coerced intervals prevent response explosion on long ranges (§E).
         if ($rangeHours <= 24) {
@@ -168,7 +140,7 @@ class ReadingController extends ApiController
     }
 
     /** @return array<int, array<string, mixed>> */
-    private function aggregated(mixed $query, string $interval, string $agg, ?string $sensorType): array
+    private static function aggregated(mixed $query, string $interval, string $agg, ?string $sensorType): array
     {
         $bucket = match ($interval) {
             '1m' => "date_trunc('minute', device_time)",

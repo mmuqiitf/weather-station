@@ -53,6 +53,10 @@ Narrow reading + dual `raw_value`/`value` (imutabel vs terkalibrasi); soft-delet
 - `ts` masa depan diterima (drift tercatat via `received_at`). `device_id` tak dikenal → 401 tanpa membedakan dari kredensial salah (disengaja, anti-enumerasi).
 - Gap chart = garis putus, rain gap = bar absen. Wind rose memakai agregat `wind_dir` vector-mean per bucket.
 - `GET /sensor-types` dan `GET /locations` tidak dipaginasi (kardinalitas kecil, <100 baris); semua list lain paginated.
+- Format response memakai **default Laravel**, bukan envelope kustom seperti disarankan §E.1: resource → `{data}` (+`links`/`meta` paginator),
+  endpoint lain objek mentah, error → `{"message"}` (`{"message","errors"}` untuk 422), `request_id` hanya di header `X-Request-Id`.
+  Alasan: konsistensi dengan konvensi framework (terdokumentasi, langsung dikenal tooling/client). Trade-off: tidak ada
+  `code` machine-readable per §E.1 — klien membedakan error via HTTP status + `message`.
 
 ## Belum selesai / lanjut
 
