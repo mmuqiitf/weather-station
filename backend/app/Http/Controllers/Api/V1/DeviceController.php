@@ -140,8 +140,20 @@ class DeviceController extends ApiController
         return $this->envelope($request, ['device_id' => $device->device_id, 'api_key_plain' => $plainKey]);
     }
 
-    public function health(Request $request, string $id): JsonResponse
+    public function indexLocations(Request $request): JsonResponse
     {
+        $locations = Location::query()->orderBy('name')->get()->map(fn (Location $l) => [
+            'id' => $l->id,
+            'name' => $l->name,
+            'latitude' => (float) $l->latitude,
+            'longitude' => (float) $l->longitude,
+            'altitude_m' => $l->altitude_m !== null ? (float) $l->altitude_m : null,
+        ]);
+
+        return $this->envelope($request, $locations);
+    }
+
+    public function health(Request $request, string $id): JsonResponse    {
         $device = $this->findDevice($id);
 
         if ($device === null) {

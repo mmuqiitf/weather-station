@@ -22,14 +22,14 @@ erDiagram
     }
     devices {
         bigint id PK
-        varchar device_id UK "e.g. WS-GRT-001"
+        varchar device_id UK "example-WS-GRT-001"
         varchar name
-        bigint location_id FK_nullable
-        varchar status "provisioned|active|decommissioned"
-        char_64 api_key_hash UK "sha256 hex, secret never stored"
+        bigint location_id FK "nullable"
+        varchar status "lifecycle"
+        char_64 api_key_hash UK "sha256-hex"
         varchar firmware_version "nullable"
-        timestamptz last_seen_at "nullable, drives online/offline"
-        timestamptz deleted_at "nullable, soft delete"
+        timestamptz last_seen_at "nullable"
+        timestamptz deleted_at "soft-delete"
         timestamptz created_at
         timestamptz updated_at
     }
@@ -37,7 +37,7 @@ erDiagram
         bigint id PK
         bigint device_id FK
         timestamptz device_time "authority"
-        timestamptz received_at "server clock"
+        timestamptz received_at "server-clock"
         varchar firmware_version "nullable"
         decimal_5_2 battery_v "nullable"
         int rssi "nullable"
@@ -45,7 +45,7 @@ erDiagram
     }
     sensor_types {
         bigint id PK
-        varchar code UK "temp_air|humidity|pressure|rain_counter|wind_speed|wind_dir|solar_rad"
+        varchar code UK "sensor-code"
         varchar unit
         decimal_12_4 min_value "nullable"
         decimal_12_4 max_value "nullable"
@@ -53,7 +53,7 @@ erDiagram
     }
     sensors {
         bigint id PK
-        varchar serial UK "physical instance"
+        varchar serial UK "physical-instance"
         bigint sensor_type_id FK
     }
     sensor_installations {
@@ -61,32 +61,32 @@ erDiagram
         bigint sensor_id FK
         bigint device_id FK
         timestamptz installed_at
-        timestamptz removed_at "nullable, NULL=open"
+        timestamptz removed_at "null-means-open"
     }
     sensor_calibrations {
         bigint id PK
         bigint sensor_id FK
         decimal_12_4 offset
         decimal_12_6 scale
-        timestamptz effective_at "correction valid since"
+        timestamptz effective_at "valid-since"
     }
     sensor_readings {
         bigint id PK
         bigint device_id FK
         bigint sensor_type_id FK
-        bigint sensor_id FK_nullable "resolved at device_time"
-        timestamptz device_time "series axis, UTC"
-        timestamptz received_at "server clock"
-        decimal_14_4 raw_value "immutable as-sent"
+        bigint sensor_id FK "nullable"
+        timestamptz device_time "series-axis-UTC"
+        timestamptz received_at "server-clock"
+        decimal_14_4 raw_value "immutable"
         decimal_14_4 value "calibrated"
-        decimal_12_4 mm_delta "nullable, rain only"
-        varchar quality "ok|out_of_range|suspect"
+        decimal_12_4 mm_delta "rain-only"
+        varchar quality "quality-flag"
     }
     reading_aggregates {
         bigint id PK
         bigint device_id FK
         bigint sensor_type_id FK
-        varchar interval "1h|1d"
+        varchar interval "hour-or-day"
         timestamptz bucket
         decimal avg_value "nullable"
         decimal min_value "nullable"
@@ -95,6 +95,6 @@ erDiagram
         int sample_count
     }
     users {
-        bigint id PK "dashboard auth placeholder"
+        bigint id PK "dashboard-auth"
         varchar email UK
     }

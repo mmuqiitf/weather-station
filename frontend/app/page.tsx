@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import useSWR from "swr";
+import { clearToken } from "@/lib/api";
 import { formatWib } from "@/lib/format";
 import type { Overview } from "@/lib/types";
 
@@ -10,6 +12,7 @@ function State({ children }: { children: React.ReactNode }) {
 }
 
 export default function OverviewPage() {
+  const router = useRouter();
   const { data, error, isLoading } = useSWR<{ devices: Overview["devices"]; counts: Overview["counts"] }>(
     "/dashboard/overview",
   );
@@ -31,6 +34,12 @@ export default function OverviewPage() {
         <nav className="flex gap-2 text-sm">
           <Link className="rounded-md border px-3 py-1.5" href="/">Overview</Link>
           <Link className="rounded-md border px-3 py-1.5" href="/manage">Kelola</Link>
+          <button
+            className="rounded-md border px-3 py-1.5"
+            onClick={() => { clearToken(); router.push("/login"); }}
+          >
+            Keluar
+          </button>
         </nav>
       </header>
 

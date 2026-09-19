@@ -3,8 +3,12 @@
 namespace App\Providers;
 
 use App\Models\Device;
+use Dedoc\Scramble\Scramble;
+use Dedoc\Scramble\Support\Generator\OpenApi;
+use Dedoc\Scramble\Support\Generator\SecurityScheme;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 
@@ -23,7 +27,14 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        RateLimiter::for('ingest', function (Request $request) {
+        // Reviewer take-home test: API docs carry no secrets, allow public access
+        // in every environment (Scramble only opens /docs/api in `local` by default).
+        Gate::define('viewApiDocs', fn () => true);
+
+        Scramble::configure()
+            ->withDocumentTransformers(function (OpenApi $openApi): void {
+                $openApi->secure(SecurityScheme::http('bearer'));
+            });        RateLimiter::for('ingest', function (Request $request) {
             $device = $request->attributes->get('device');
 
             return Limit::perMinute(60)->by(

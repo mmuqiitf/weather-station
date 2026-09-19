@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { use, useState } from "react";
+import { use, useMemo, useState } from "react";
 import useSWR from "swr";
 import {
   Bar,
@@ -26,12 +26,13 @@ const RANGE_CFG: Record<Range, { label: string; hours: number; series: string; r
   "30d": { label: "30 hari", hours: 720, series: "1h", rain: "1d" },
 };
 
-function usePoints(deviceId: string, sensor: string, interval: string, agg = "avg") {
-  const from = undefined; // server defaults to last 24h; range handled by interval coercion note below
+const ROSE_SECTORS = ["U", "TL", "T", "TG", "S", "BD", "B", "BL"];
+
+function usePoints(deviceId: string, sensor: string, interval: string, from: string, to: string, agg = "avg") {
   const { data, error, isLoading } = useSWR<{ points: SeriesPoint[] }>(
-    `/readings?device_id=${deviceId}&sensor_type=${sensor}&interval=${interval}&agg=${agg}`,
+    `/readings?device_id=${deviceId}&sensor_type=${sensor}&interval=${interval}&agg=${agg}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
   );
-  return { data: data as unknown as { points: SeriesPoint[] } | undefined, error, isLoading, from };
+  return { data: data as unknown as { points: SeriesPoint[] } | undefined, error, isLoading };
 }
 
 function tickWib(t: string) {
@@ -44,16 +45,71 @@ function tickWib(t: string) {
   }).format(new Date(t));
 }
 
+/** 8-sector wind rose (SVG, no extra lib): spoke length ∝ frequency per direction. */
+function WindRose({ points }: { points: SeriesPoint[] }) {
+  const size = 220;
+  const c = size / 2;
+  const maxR = c - 28;
+  const counts = useMemo(() => {
+    const bins = new Array(8).fill(0);
+    for (const p of points) {
+      const deg = ((p.v % 360) + 360) % 360;
+      bins[Math.floor(((deg + 22.5) % 360) / 45)] += 1;
+    }
+    return bins as number[];
+  }, [points]);
+  const max = Math.max(1, ...counts);
+  return (
+    <div className="flex flex-col items-center gap-1">
+      <svg width={size} height={size} role="img" aria-label="Wind rose">
+        {[0.25, 0.5, 0.75, 1].map((f) => (
+          <circle key={f} cx={c} cy={c} r={maxR * f} fill="none" strokeWidth={1} className="stroke-muted" strokeDasharray={f === 1 ? undefined : "2 3"} />
+        ))}
+        {counts.map((n, i) => {
+          const angle = (i * 45 - 90) * (Math.PI / 180);
+          const len = maxR * (n / max);
+          const x2 = c + len * Math.cos(angle);
+          const y2 = c + len * Math.sin(angle);
+          const lx = c + (maxR + 16) * Math.cos(angle);
+          const ly = c + (maxR + 16) * Math.sin(angle);
+          return (
+            <g key={ROSE_SECTORS[i]}>
+              <line x1={c} y1={c} x2={x2} y2={y2} strokeWidth={n === max && n > 0 ? 5 : 3} className="stroke-foreground" strokeLinecap="round" />
+              <text x={lx} y={ly} textAnchor="middle" dominantBaseline="middle" fontSize={11} className="fill-muted-foreground">
+                {ROSE_SECTORS[i]}
+              </text>
+            </g>
+          );
+        })}
+        <circle cx={c} cy={c} r={3} className="fill-foreground" />
+      </svg>
+      <p className="text-xs text-muted-foreground">
+        {points.length === 0
+          ? "Belum ada data arah angin pada rentang ini."
+          : `n=${points.length} · dominan ${ROSE_SECTORS[counts.indexOf(max)]} (${max} titik)`}
+      </p>
+    </div>
+  );
+}
+
 export default function DeviceDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const [range, setRange] = useState<Range>("24h");
   const cfg = RANGE_CFG[range];
 
+  // Window actually sent to the API — range buttons change the time window, not just the interval.
+  const { from, to } = useMemo(() => {
+    const end = new Date();
+    const start = new Date(end.getTime() - cfg.hours * 3600 * 1000);
+    return { from: start.toISOString(), to: end.toISOString() };
+  }, [cfg.hours]);
+
   const latest = useSWR<LatestResponse>(`/devices/${id}/readings/latest`);
-  const temp = usePoints(id, "temp_air", cfg.series);
-  const hum = usePoints(id, "humidity", cfg.series);
-  const rain = usePoints(id, "rain_counter", cfg.rain, "sum");
-  const wind = usePoints(id, "wind_speed", cfg.rain);
+  const temp = usePoints(id, "temp_air", cfg.series, from, to);
+  const hum = usePoints(id, "humidity", cfg.series, from, to);
+  const rain = usePoints(id, "rain_counter", cfg.rain, from, to, "sum");
+  const wind = usePoints(id, "wind_speed", cfg.rain, from, to);
+  const windDir = usePoints(id, "wind_dir", cfg.rain, from, to);
 
   const latestData = latest.data as unknown as LatestResponse | undefined;
 
@@ -116,6 +172,10 @@ export default function DeviceDetailPage({ params }: { params: Promise<{ id: str
         <h2 className="mb-2 text-sm font-medium">Suhu & kelembapan ({cfg.series})</h2>
         {temp.isLoading || hum.isLoading ? (
           <div className="p-8 text-center text-sm text-muted-foreground">Memuat chart…</div>
+        ) : temp.error || hum.error ? (
+          <div className="p-8 text-center text-sm text-red-600">Gagal memuat seri suhu/kelembapan.</div>
+        ) : merged.length === 0 ? (
+          <div className="p-8 text-center text-sm text-muted-foreground">Tidak ada data pada rentang ini.</div>
         ) : (
           <ResponsiveContainer width="100%" height={260}>
             <LineChart data={merged}>
@@ -137,6 +197,8 @@ export default function DeviceDetailPage({ params }: { params: Promise<{ id: str
         <h2 className="mb-2 text-sm font-medium">Curah hujan per {cfg.rain} (mm, dari rain_counter)</h2>
         {rain.isLoading ? (
           <div className="p-8 text-center text-sm text-muted-foreground">Memuat chart…</div>
+        ) : rain.error ? (
+          <div className="p-8 text-center text-sm text-red-600">Gagal memuat data hujan.</div>
         ) : (
           <ResponsiveContainer width="100%" height={200}>
             <BarChart data={rain.data?.points ?? []}>
@@ -154,6 +216,8 @@ export default function DeviceDetailPage({ params }: { params: Promise<{ id: str
         <h2 className="mb-2 text-sm font-medium">Kecepatan angin (m/s)</h2>
         {wind.isLoading ? (
           <div className="p-8 text-center text-sm text-muted-foreground">Memuat chart…</div>
+        ) : wind.error ? (
+          <div className="p-8 text-center text-sm text-red-600">Gagal memuat data angin.</div>
         ) : (
           <ResponsiveContainer width="100%" height={200}>
             <LineChart data={wind.data?.points ?? []}>
@@ -165,6 +229,18 @@ export default function DeviceDetailPage({ params }: { params: Promise<{ id: str
             </LineChart>
           </ResponsiveContainer>
         )}
+      </section>
+
+      <section className="rounded-lg border p-4">
+        <h2 className="mb-2 text-sm font-medium">Wind rose — arah angin ({cfg.rain})</h2>
+        {windDir.isLoading ? (
+          <div className="p-8 text-center text-sm text-muted-foreground">Memuat wind rose…</div>
+        ) : windDir.error ? (
+          <div className="p-8 text-center text-sm text-red-600">Gagal memuat arah angin.</div>
+        ) : (
+          <WindRose points={windDir.data?.points ?? []} />
+        )}
+        <p className="mt-1 text-center text-xs text-muted-foreground">U=utara (0°) · searah jarum jam tiap 45° · panjang spoke ∝ frekuensi.</p>
       </section>
     </div>
   );

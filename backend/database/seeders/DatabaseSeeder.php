@@ -16,7 +16,11 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-        // User::factory(10)->create();
+        // Reviewer demo login (documented in README): admin@weather.local / admin123.
+        User::query()->firstOrCreate(['email' => 'admin@weather.local'], [
+            'name' => 'Reviewer Admin',
+            'password' => Hash::make('admin123'),
+        ]);
 
         User::query()->firstOrCreate(['email' => 'test@example.com'], [
             'name' => 'Test User',

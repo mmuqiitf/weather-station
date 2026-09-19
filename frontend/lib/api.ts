@@ -1,4 +1,19 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080/api/v1";
+
+const TOKEN_KEY = "ws_token";
+
+export function getToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return window.localStorage.getItem(TOKEN_KEY);
+}
+
+export function setToken(token: string) {
+  window.localStorage.setItem(TOKEN_KEY, token);
+}
+
+export function clearToken() {
+  window.localStorage.removeItem(TOKEN_KEY);
+}
 
 export class ApiError extends Error {
   status: number;
@@ -11,10 +26,24 @@ export class ApiError extends Error {
   }
 }
 
+function authHeaders(): Record<string, string> {
+  const token = getToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+function handleUnauthorized(status: number, code?: string) {
+  if (typeof window !== "undefined" && status === 401 && code === "user_unauthenticated") {
+    clearToken();
+    if (!window.location.pathname.startsWith("/login")) {
+      window.location.assign("/login");
+    }
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {
     ...init,
-    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+    headers: { "Content-Type": "application/json", ...authHeaders(), ...(init?.headers ?? {}) },
   });
   const body = (await res.json().catch(() => null)) as {
     data?: T;
@@ -22,9 +51,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     meta?: { request_id?: string };
   } | null;
   if (!res.ok) {
+    const code = body?.error?.code ?? "unknown_error";
+    handleUnauthorized(res.status, code);
     throw new ApiError(
       res.status,
-      body?.error?.code ?? "unknown_error",
+      code,
       body?.error?.message ?? `Request failed with status ${res.status}`,
     );
   }
@@ -44,16 +75,18 @@ export interface Envelope<T> {
 async function rawRequest<T>(path: string, init?: RequestInit): Promise<Envelope<T>> {
   const res = await fetch(`${API_URL}${path}`, {
     ...init,
-    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+    headers: { "Content-Type": "application/json", ...authHeaders(), ...(init?.headers ?? {}) },
   });
   const body = (await res.json().catch(() => null)) as Envelope<T> & {
     error?: { code?: string; message?: string };
   };
   if (!res.ok) {
     const err = body as unknown as { error?: { code?: string; message?: string } };
+    const code = err?.error?.code ?? "unknown_error";
+    handleUnauthorized(res.status, code);
     throw new ApiError(
       res.status,
-      err?.error?.code ?? "unknown_error",
+      code,
       err?.error?.message ?? `Request failed with status ${res.status}`,
     );
   }

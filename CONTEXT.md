@@ -17,4 +17,5 @@ Glossary only. No implementation decisions.
 - **Received At**: server timestamp when payload was accepted. Kept for drift/late-data diagnosis, never the series axis.
 - **Aggregate**: rollup over readings for an interval (`1h`, `1d`): `avg`/`min`/`max` for gauges, `sum` of `mm_delta` for rain, vector-mean for wind direction.
 - **Heartbeat**: device health report without sensor data (`battery_v`, `rssi`, `fw`, `uptime_s`).
+- **User**: human dashboard account (email + password). Authenticates via Sanctum bearer token from `POST /auth/login`; unrelated to device `api_key`.
 - **Online**: device sent any payload within the last 15 minutes. Otherwise `offline`. `offline` does not distinguish dead hardware from lost network.

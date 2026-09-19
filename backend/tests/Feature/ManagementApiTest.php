@@ -6,7 +6,9 @@ use App\Models\Device;
 use App\Models\Location;
 use App\Models\Sensor;
 use App\Models\SensorType;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
 class ManagementApiTest extends TestCase
@@ -17,6 +19,7 @@ class ManagementApiTest extends TestCase
     {
         parent::setUp();
 
+        Sanctum::actingAs(User::factory()->create());
         SensorType::query()->create(['code' => 'temp_air', 'unit' => '°C', 'precision' => 1]);
     }
 
