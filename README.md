@@ -14,19 +14,22 @@ Backend melakukan `migrate --force` otomatis saat boot dan seeding awal bila tab
 Tidak ada langkah manual lagi — file compose kanonis tunggal adalah `docker-compose.yml`
 (`db` TimescaleDB + `backend` FrankenPHP/Octane + `frontend` Next.js).
 
-> Catatan: hentikan Sail dulu bila sedang jalan (`./vendor/bin/sail stop` dari `backend/`),
-> karena Sail memakai host 5433/8002 dan stack ini butuh 5433/8080/3000.
+> Catatan: port host default stack ini adalah 5434/8080/3000 — sengaja digeser dari
+> 5433 agar bisa jalan berdampingan dengan Sail (`backend-pgsql` memakai host 5433).
 > Port host bisa dioverride via `APP_PORT` / `FRONTEND_PORT` / `FORWARD_DB_PORT`
 > (bila `NEXT_PUBLIC_API_URL` diubah, rebuild frontend: `docker compose up --build`).
 > Alur terverifikasi dari volume kosong: `database reachable` → migrasi → seed
 > (3 device + histori 7 hari) → `Server running`.
+> Frontend berjalan dalam mode dev: source `frontend/` di-mount ke container dan
+> dilayani `next dev`, sehingga perubahan file langsung terlihat di
+> `http://localhost:3000` tanpa rebuild image.
 
 Stack: Laravel 13 + FrankenPHP/Octane (`backend/`), Next.js (`frontend/`), TimescaleDB image (`db`), simulator Python stdlib (`simulator/simulate.py`).
 URL: API `http://localhost:8080/api/v1`, OpenAPI UI `http://localhost:8080/docs/api`
-(JSON `http://localhost:8080/docs/api.json`), frontend `http://localhost:3000`, DB `localhost:5433`.
+(JSON `http://localhost:8080/docs/api.json`), frontend `http://localhost:3000`, DB `localhost:5434`.
 ERD: `docs/erd.mmd` (sumber) + `docs/erd.svg` (gambar) + daftar index di `docs/ERD.md`; alur di `docs/data-flow.mmd` (Mermaid — ter-render otomatis di GitHub; sumber ikut di-commit per §C).
 Simulator: `API_URL=... python simulator/simulate.py --all --mode normal|offline|duplicate|heartbeat` (kunci di `backend/database/seeders/WeatherSeeder.php`).
-Tes backend: `DB_HOST=127.0.0.1 DB_PORT=5433 ./vendor/bin/phpunit` (19 tes: auth, ingest, lifecycle, sensor, dedup, kalibrasi).
+Tes backend: `DB_HOST=127.0.0.1 DB_PORT=5434 ./vendor/bin/phpunit` (19 tes: auth, ingest, lifecycle, sensor, dedup, kalibrasi).
 
 ## Login dashboard
 
@@ -54,8 +57,3 @@ Narrow reading + dual `raw_value`/`value` (imutabel vs terkalibrasi); soft-delet
 ## Belum selesai / lanjut
 
 SSE/WebSocket realtime (kini polling 60 dtk), MQTT ingest, alert hujan, export CSV, `/metrics` Prometheus, CI lint+test. Langkah: tambah endpoint + langganan SSE per device, rule alert di worker agregat, lalu metrik.
-
-## Waktu
-
-±2 hari kerja: backend & ingest (±8 jam), seeder/simulator/tes (±3 jam), frontend (±4 jam), dokumen (ERD, API, JAWABAN, README) (±3 jam).
-+ susulan: auth Sanctum + OpenAPI Scramble + wind rose + entrypoint satu-perintah + simulator multi-device (±4 jam).

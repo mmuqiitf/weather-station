@@ -7,7 +7,7 @@ services:
       POSTGRES_USER: ${DB_USERNAME:-weather}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-secret}
     ports:
-      - "${FORWARD_DB_PORT:-5433}:5432"
+      - "${FORWARD_DB_PORT:-5434}:5432"
     volumes:
       - db-data:/var/lib/postgresql/data
     networks:
@@ -60,7 +60,13 @@ services:
       context: ./frontend
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080/api/v1}
+    command: ["npm", "run", "dev", "--", "-p", "3000", "-H", "0.0.0.0"]
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
     environment:
+      NODE_ENV: development
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080/api/v1}
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
