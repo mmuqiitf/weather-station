@@ -25,7 +25,7 @@ Put these three calls in the `setUp()` of the base `TestCase` of the project:
 
 ## How to Run the Suite in Parallel
 
-Run `php artisan test --parallel`, which uses ParaTest, to spread tests across the machine's CPU cores. Add `--processes=N` if the default count is unsuitable for the machine or CI.
+Run `vendor/bin/sail artisan test --parallel`, which uses ParaTest, to spread tests across the machine's CPU cores. Add `--processes=N` if the default count is unsuitable for the machine or CI.
 
 A parallel run gives each process a separate database. Tests must meet these conditions; a test that fails only in parallel breaks one of them:
 
@@ -35,7 +35,7 @@ A parallel run gives each process a separate database. Tests must meet these con
 
 ## How to Find a Slow Test
 
-Run `php artisan test --profile` to list the slowest tests. Start with the ten slowest tests, because the same cause often applies to the complete suite.
+Run `vendor/bin/sail artisan test --profile` to list the slowest tests. Start with the ten slowest tests, because the same cause often applies to the complete suite.
 
 If the cause of a slow test is unclear, add an event listener or temporary log entry to identify its work.
 
