@@ -2,9 +2,10 @@
 
 namespace App\Http\Middleware;
 
+use App\Exceptions\ApiException;
 use App\Models\Device;
+use App\Support\ApiErrorCode;
 use Closure;
-use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -15,7 +16,7 @@ class AuthenticateDevice
         $key = $request->bearerToken();
 
         if ($key === null || $key === '') {
-            return $this->unauthenticated();
+            throw new ApiException(ApiErrorCode::Unauthenticated, 'Invalid or missing device credentials.');
         }
 
         $device = Device::query()
@@ -24,19 +25,11 @@ class AuthenticateDevice
             ->first();
 
         if ($device === null) {
-            return $this->unauthenticated();
+            throw new ApiException(ApiErrorCode::Unauthenticated, 'Invalid or missing device credentials.');
         }
 
         $request->attributes->set('device', $device);
 
         return $next($request);
-    }
-
-    private function unauthenticated(): JsonResponse
-    {
-        return response()->json([
-            'message' => 'Invalid or missing device credentials.',
-            'code' => 'unauthenticated',
-        ], 401);
     }
 }

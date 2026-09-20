@@ -6,6 +6,8 @@ use Illuminate\Foundation\Http\FormRequest;
 
 class ListCalibrationsRequest extends FormRequest
 {
+    use Concerns\HasPagination;
+
     public function authorize(): bool
     {
         return true;
@@ -14,9 +16,6 @@ class ListCalibrationsRequest extends FormRequest
     /** @return array<string, array<int, mixed>> */
     public function rules(): array
     {
-        return [
-            'page' => ['nullable', 'integer', 'min:1'],
-            'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
-        ];
+        return $this->paginationRules();
     }
 }

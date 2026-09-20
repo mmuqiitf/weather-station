@@ -2,12 +2,16 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Exceptions\ApiException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\BatchTelemetryRequest;
 use App\Http\Requests\HeartbeatRequest;
 use App\Http\Requests\TelemetryRequest;
+use App\Http\Resources\HeartbeatResource;
+use App\Http\Resources\IngestResultResource;
 use App\Models\Device;
 use App\Services\IngestService;
+use App\Support\ApiErrorCode;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
@@ -36,7 +40,8 @@ class IngestController extends Controller
             );
         }
 
-        return response()->json($result, $result['duplicates'] > 0 ? 200 : 201);
+        return (new IngestResultResource($result))->response()
+            ->setStatusCode($result['duplicates'] > 0 ? 200 : 201);
     }
 
     public function batch(BatchTelemetryRequest $request, IngestService $ingest): JsonResponse
@@ -50,10 +55,10 @@ class IngestController extends Controller
 
         $status = $result['rejected'] !== [] || $result['duplicates'] > 0 ? 207 : 201;
 
-        return response()->json($result, $status);
+        return (new IngestResultResource($result))->response()->setStatusCode($status);
     }
 
-    public function heartbeat(HeartbeatRequest $request): JsonResponse
+    public function heartbeat(HeartbeatRequest $request): HeartbeatResource
     {
         $validated = $request->validated();
 
@@ -77,7 +82,7 @@ class IngestController extends Controller
             'status' => $device->status === Device::STATUS_PROVISIONED ? Device::STATUS_ACTIVE : $device->status,
         ])->save();
 
-        return response()->json(['received' => true]);
+        return new HeartbeatResource;
     }
 
     private static function device(Request $request): Device
@@ -90,8 +95,9 @@ class IngestController extends Controller
 
     private static function assertOwnership(Device $device, string $payloadDeviceId): void
     {
-        abort_unless($payloadDeviceId === $device->device_id, 403,
-            'Payload device_id does not match authenticated device.');
+        if ($payloadDeviceId !== $device->device_id) {
+            throw new ApiException(ApiErrorCode::DeviceMismatch, 'Payload device_id does not match authenticated device.');
+        }
     }
 
     private static function rejectionMessage(string $code): string

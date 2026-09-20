@@ -58,7 +58,7 @@ import {
 } from "@/components/ui/dialog"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { api, type Resource } from "@/lib/api"
+import { api, type Paginated, type Resource } from "@/lib/api"
 import { formatWib } from "@/lib/format"
 import type {
   DeviceDetail,
@@ -102,6 +102,14 @@ const TOOLTIP_STYLE = {
   fontSize: "12px",
 } as const
 
+type SeriesResponse = Resource<{ points: SeriesPoint[] }> | Paginated<SeriesPoint>
+
+function normalizePoints(data: SeriesResponse | undefined): SeriesPoint[] {
+  const inner = data?.data
+  if (Array.isArray(inner)) return inner
+  return (inner as { points?: SeriesPoint[] } | undefined)?.points ?? []
+}
+
 function usePoints(
   deviceId: string,
   sensor: string,
@@ -110,11 +118,12 @@ function usePoints(
   to: string,
   agg = "avg"
 ) {
-  const { data, error, isLoading } = useSWR<{ points: SeriesPoint[] }>(
+  const { data, error, isLoading } = useSWR<SeriesResponse>(
     `/readings?device_id=${deviceId}&sensor_type=${sensor}&interval=${interval}&agg=${agg}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
   )
+  const points = useMemo(() => normalizePoints(data), [data])
   return {
-    data: data as unknown as { points: SeriesPoint[] } | undefined,
+    data: { points },
     error,
     isLoading,
   }
@@ -271,7 +280,9 @@ export default function DeviceDetailPage({
     return { from: start.toISOString(), to: end.toISOString() }
   }, [cfg.hours])
 
-  const latest = useSWR<LatestResponse>(`/devices/${id}/readings/latest`)
+  const latest = useSWR<Resource<LatestResponse>>(
+    `/devices/${id}/readings/latest`
+  )
   const device = useSWR(`/devices/${id}`, (p: string) =>
     api.get<Resource<DeviceDetail>>(p)
   )
@@ -281,11 +292,12 @@ export default function DeviceDetailPage({
   const rainDaily = usePoints(id, "rain_counter", "1d", from, to, "sum")
   const wind = usePoints(id, "wind_speed", cfg.rain, from, to)
   const windDir = usePoints(id, "wind_dir", cfg.rain, from, to)
-  const summary = useSWR<Summary>(
+  const summary = useSWR<Resource<Summary>>(
     `/readings/summary?device_id=${id}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
   )
 
-  const latestData = latest.data
+  const latestData = latest.data?.data
+  const summaryData = summary.data?.data
   const detail = device.data?.data
   const deviceKey = detail?.device_id ?? decodeURIComponent(id)
 
@@ -321,10 +333,10 @@ export default function DeviceDetailPage({
   async function confirmRotate() {
     setRotateBusy(true)
     try {
-      const res = await api.post<{ device_id: string; api_key_plain: string }>(
-        `/devices/${id}/credentials/rotate`
-      )
-      setRotatedKey(res.api_key_plain)
+      const res = await api.post<
+        Resource<{ device_id: string; api_key_plain: string }>
+      >(`/devices/${id}/credentials/rotate`)
+      setRotatedKey(res.data.api_key_plain)
     } catch (err) {
       setResult({
         kind: "err",
@@ -562,7 +574,7 @@ export default function DeviceDetailPage({
             Array.from({ length: 5 }).map((_, i) => (
               <Skeleton key={i} className="h-12" />
             ))
-          ) : summary.error || !summary.data ? (
+          ) : summary.error || !summaryData ? (
             <p className="col-span-full text-sm text-muted-foreground">
               Summary unavailable for this range.
             </p>
@@ -570,27 +582,27 @@ export default function DeviceDetailPage({
             [
               [
                 "Min temp",
-                summary.data.temp_min != null
-                  ? `${summary.data.temp_min.toFixed(1)} °C`
+                summaryData.temp_min != null
+                  ? `${summaryData.temp_min.toFixed(1)} °C`
                   : "—",
               ],
               [
                 "Max temp",
-                summary.data.temp_max != null
-                  ? `${summary.data.temp_max.toFixed(1)} °C`
+                summaryData.temp_max != null
+                  ? `${summaryData.temp_max.toFixed(1)} °C`
                   : "—",
               ],
               [
                 "Avg temp",
-                summary.data.temp_avg != null
-                  ? `${summary.data.temp_avg.toFixed(1)} °C`
+                summaryData.temp_avg != null
+                  ? `${summaryData.temp_avg.toFixed(1)} °C`
                   : "—",
               ],
-              ["Rain total", `${summary.data.rain_total_mm.toFixed(1)} mm`],
+              ["Rain total", `${summaryData.rain_total_mm.toFixed(1)} mm`],
               [
                 "Max wind",
-                summary.data.wind_max != null
-                  ? `${summary.data.wind_max.toFixed(1)} m/s`
+                summaryData.wind_max != null
+                  ? `${summaryData.wind_max.toFixed(1)} m/s`
                   : "—",
               ],
             ].map(([label, value]) => (

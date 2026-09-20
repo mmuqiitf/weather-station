@@ -53,7 +53,7 @@ class ErrorContractTest extends TestCase
         // Illegal lifecycle jump provisioned -> decommissioned.
         $this->patchJson("/api/v1/devices/{$device->id}", ['status' => 'decommissioned'])
             ->assertStatus(422)
-            ->assertJsonPath('code', 'unprocessable_entity');
+            ->assertJsonPath('code', 'illegal_lifecycle_transition');
     }
 
     public function test_not_found_error_has_code(): void
@@ -76,7 +76,58 @@ class ErrorContractTest extends TestCase
 
         $this->deleteJson("/api/v1/sensor-types/{$type->id}")
             ->assertStatus(409)
-            ->assertJsonPath('code', 'conflict');
+            ->assertJsonPath('code', 'sensor_type_in_use');
+    }
+
+    public function test_error_carries_request_id_matching_header(): void
+    {
+        $this->actingAsDashboardUser();
+
+        $response = $this->getJson('/api/v1/devices/999999');
+        $response->assertStatus(404);
+
+        $this->assertNotEmpty($response->json('request_id'));
+        $this->assertSame($response->headers->get('X-Request-Id'), $response->json('request_id'));
+    }
+
+    public function test_inbound_request_id_is_honored(): void
+    {
+        $this->actingAsDashboardUser();
+
+        $response = $this->getJson('/api/v1/devices/999999', ['X-Request-Id' => 'trace-123']);
+        $response->assertStatus(404);
+
+        $this->assertSame('trace-123', $response->json('request_id'));
+        $this->assertSame('trace-123', $response->headers->get('X-Request-Id'));
+    }
+
+    public function test_ingest_rate_limit_returns_429_with_code_and_retry_after(): void
+    {
+        SensorType::query()->create(['code' => 'temp_air', 'unit' => '°C', 'precision' => 1]);
+
+        $device = Device::query()->create([
+            'device_id' => 'WS-ERR-RL',
+            'name' => 'Rate limit probe',
+            'status' => Device::STATUS_ACTIVE,
+            'api_key_hash' => hash('sha256', 'rl-secret'),
+        ]);
+
+        $payload = [
+            'device_id' => 'WS-ERR-RL',
+            'ts' => 1757308800,
+            'readings' => [['s' => 'temp_air', 'v' => 20]],
+        ];
+        $headers = ['Authorization' => 'Bearer rl-secret'];
+
+        for ($i = 0; $i < 60; $i++) {
+            $this->postJson('/api/v1/ingest/telemetry', $payload, $headers)->assertSuccessful();
+        }
+
+        $limited = $this->postJson('/api/v1/ingest/telemetry', $payload, $headers);
+        $limited->assertStatus(429)->assertJsonPath('code', 'rate_limited');
+        $this->assertNotNull($limited->headers->get('Retry-After'));
+
+        $this->assertSame('WS-ERR-RL', $device->device_id);
     }
 
     public function test_forbidden_device_mismatch_has_code(): void
@@ -96,7 +147,7 @@ class ErrorContractTest extends TestCase
 
         $this->postJson('/api/v1/ingest/telemetry', $payload, [
             'Authorization' => 'Bearer device-secret',
-        ])->assertStatus(403)->assertJsonPath('code', 'forbidden');
+        ])->assertStatus(403)->assertJsonPath('code', 'device_mismatch');
 
         $this->assertSame('WS-ERR-002', $device->device_id);
     }

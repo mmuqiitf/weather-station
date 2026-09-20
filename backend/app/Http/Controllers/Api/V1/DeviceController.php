@@ -2,15 +2,19 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Exceptions\ApiException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\ListDevicesRequest;
 use App\Http\Requests\ListLocationsRequest;
 use App\Http\Requests\StoreDeviceRequest;
 use App\Http\Requests\UpdateDeviceRequest;
+use App\Http\Resources\DeviceCredentialResource;
+use App\Http\Resources\DeviceHealthResource;
 use App\Http\Resources\DeviceResource;
 use App\Http\Resources\LocationResource;
 use App\Models\Device;
 use App\Models\Location;
+use App\Support\ApiErrorCode;
 use App\Support\DeviceLookup;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -49,9 +53,11 @@ class DeviceController extends Controller
         }
 
         // Sort column is validated against an allow-list in ListDevicesRequest.
-        $query->orderBy($validated['sort'] ?? 'id', $validated['direction'] ?? 'asc');
+        // A unique id tie-breaker keeps page boundaries stable when sort values tie.
+        $direction = $validated['direction'] ?? 'asc';
+        $query->orderBy($validated['sort'] ?? 'id', $direction)->orderBy('id', $direction);
 
-        return DeviceResource::collection($query->paginate($validated['per_page'] ?? 15));
+        return DeviceResource::collection($query->paginate($request->perPage()));
     }
 
     public function store(StoreDeviceRequest $request): JsonResponse
@@ -88,7 +94,10 @@ class DeviceController extends Controller
 
         // Controlled lifecycle: provisioned -> active -> decommissioned. No resurrection.
         if (isset($validated['status']) && ! self::allowedTransition($device->status, $validated['status'])) {
-            abort(422, "Cannot transition {$device->status} -> {$validated['status']}.");
+            throw new ApiException(
+                ApiErrorCode::IllegalLifecycleTransition,
+                "Cannot transition {$device->status} -> {$validated['status']}.",
+            );
         }
 
         $device->fill($validated)->save();
@@ -104,38 +113,31 @@ class DeviceController extends Controller
         return response()->noContent();
     }
 
-    public function rotate(string $id): JsonResponse
+    public function rotate(string $id): DeviceCredentialResource
     {
         $device = DeviceLookup::findOrFail($id);
 
         $plainKey = 'ws_'.Str::random(32);
         $device->forceFill(['api_key_hash' => hash('sha256', $plainKey)])->save();
 
-        return response()->json(['device_id' => $device->device_id, 'api_key_plain' => $plainKey]);
+        return new DeviceCredentialResource($device->device_id, $plainKey);
     }
 
     public function indexLocations(ListLocationsRequest $request): AnonymousResourceCollection
     {
         return LocationResource::collection(
-            Location::query()->orderBy('name')->paginate($request->validated()['per_page'] ?? 15)
+            Location::query()->orderBy('name')->orderBy('id')->paginate($request->perPage())
         );
     }
 
-    public function health(string $id): JsonResponse
+    public function health(string $id): DeviceHealthResource
     {
         $device = DeviceLookup::findOrFail($id);
 
-        $latest = $device->heartbeats()->latest('device_time')->first();
-
-        return response()->json([
-            'device_id' => $device->device_id,
-            'status' => $device->status,
-            'is_online' => $device->isOnline(),
-            'last_seen_at' => $device->last_seen_at?->toIso8601String(),
-            'firmware_version' => $device->firmware_version,
-            'battery_v' => $latest?->battery_v,
-            'rssi' => $latest?->rssi,
-        ]);
+        return new DeviceHealthResource(
+            $device,
+            $device->heartbeats()->latest('device_time')->first(),
+        );
     }
 
     private static function allowedTransition(string $from, string $to): bool

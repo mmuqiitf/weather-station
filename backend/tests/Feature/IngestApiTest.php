@@ -59,8 +59,8 @@ class IngestApiTest extends TestCase
         $response = $this->postJson('/api/v1/ingest/telemetry', $this->payload(), $this->headers());
 
         $response->assertStatus(201)
-            ->assertJsonPath('accepted', 1)
-            ->assertJsonPath('duplicates', 0);
+            ->assertJsonPath('data.accepted', 1)
+            ->assertJsonPath('data.duplicates', 0);
         $this->assertNotNull($response->headers->get('X-Request-Id'));
     }
 
@@ -86,7 +86,7 @@ class IngestApiTest extends TestCase
         $this->postJson('/api/v1/ingest/telemetry', $this->payload(), $this->headers());
         $response = $this->postJson('/api/v1/ingest/telemetry', $this->payload(), $this->headers());
 
-        $response->assertStatus(200)->assertJsonPath('duplicates', 1);
+        $response->assertStatus(200)->assertJsonPath('data.duplicates', 1);
     }
 
     public function test_batch_partial_success_returns_207(): void
@@ -103,8 +103,8 @@ class IngestApiTest extends TestCase
         $response = $this->postJson('/api/v1/ingest/telemetry/batch', $body, $this->headers());
 
         $response->assertStatus(207)
-            ->assertJsonPath('accepted', 1)
-            ->assertJsonPath('duplicates', 1);
+            ->assertJsonPath('data.accepted', 1)
+            ->assertJsonPath('data.duplicates', 1);
     }
 
     public function test_batch_over_limit_is_rejected(): void
@@ -130,7 +130,7 @@ class IngestApiTest extends TestCase
             'uptime_s' => 864321,
         ], $this->headers());
 
-        $response->assertStatus(200)->assertJsonPath('received', true);
+        $response->assertStatus(200)->assertJsonPath('data.received', true);
         $this->assertSame(1, $this->device->fresh()->heartbeats()->count());
     }
 

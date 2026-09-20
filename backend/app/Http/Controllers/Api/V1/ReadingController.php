@@ -2,19 +2,25 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Exceptions\ApiException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\ListReadingsRequest;
 use App\Http\Requests\ReadingSummaryRequest;
+use App\Http\Resources\ReadingLatestResource;
+use App\Http\Resources\ReadingPointResource;
+use App\Http\Resources\ReadingSeriesResource;
+use App\Http\Resources\ReadingSummaryResource;
 use App\Models\SensorReading;
 use App\Models\SensorType;
+use App\Support\ApiErrorCode;
 use App\Support\DeviceLookup;
-use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
 class ReadingController extends Controller
 {
     public const MAX_POINTS = 5000;
 
-    public function latest(string $id): JsonResponse
+    public function latest(string $id): ReadingLatestResource
     {
         $device = DeviceLookup::findOrFail($id);
 
@@ -22,24 +28,12 @@ class ReadingController extends Controller
             ->where('device_id', $device->id)
             ->whereIn('id', fn ($q) => $q->selectRaw('MAX(id)')
                 ->from('sensor_readings')->where('device_id', $device->id)->groupBy('sensor_type_id'))
-            ->with('sensorType')->get()->map(fn (SensorReading $r) => [
-                'sensor_type' => $r->sensorType->code,
-                'unit' => $r->sensorType->unit,
-                'raw_value' => (float) $r->raw_value,
-                'value' => (float) $r->value,
-                'quality' => $r->quality,
-                'device_time' => $r->device_time->toIso8601String(),
-            ])->values();
+            ->with('sensorType')->get();
 
-        return response()->json([
-            'device_id' => $device->device_id,
-            'is_online' => $device->isOnline(),
-            'last_seen_at' => $device->last_seen_at?->toIso8601String(),
-            'sensors' => $sensors,
-        ]);
+        return new ReadingLatestResource($device, $sensors);
     }
 
-    public function index(ListReadingsRequest $request): JsonResponse
+    public function index(ListReadingsRequest $request): AnonymousResourceCollection|ReadingSeriesResource
     {
         $validated = $request->validated();
 
@@ -53,43 +47,45 @@ class ReadingController extends Controller
         $interval = self::coerceInterval($requested, $rangeHours);
         $agg = $validated['agg'] ?? 'avg';
 
+        $maxPoints = (int) config('api.readings.max_points', self::MAX_POINTS);
+
         $query = SensorReading::query()->where('device_id', $device->id)
             ->whereBetween('device_time', [$from->format('Y-m-d H:i:s'), $to->format('Y-m-d H:i:s')])
-            ->orderBy('device_time');
+            ->orderBy('device_time')->orderBy('id');
 
         if (! empty($validated['sensor_type'])) {
             $typeId = SensorType::where('code', $validated['sensor_type'])->value('id');
-            abort_unless($typeId !== null, 422, 'Unknown sensor_type.');
+
+            if ($typeId === null) {
+                throw new ApiException(ApiErrorCode::UnknownSensorType, 'Unknown sensor_type.');
+            }
+
             $query->where('sensor_type_id', $typeId);
         }
 
         // Forced aggregation guard: raw over a long range would explode the response.
         if ($interval === 'raw') {
-            $perPage = min($validated['per_page'] ?? 1000, self::MAX_POINTS);
-            $paginator = $query->with('sensorType')->paginate($perPage)->through(fn (SensorReading $r) => [
-                't' => $r->device_time->toIso8601String(),
-                'sensor_type' => $r->sensorType->code,
-                'v' => (float) $r->value,
-                'q' => $r->quality,
-            ]);
+            $perPage = min($request->perPage((int) config('api.readings.raw_per_page', 1000)), $maxPoints);
+            $paginator = $query->with('sensorType')->paginate($perPage);
 
-            return response()->json(array_merge($paginator->toArray(), [
+            return ReadingPointResource::collection($paginator)->additional([
                 'interval_requested' => $requested, 'interval_applied' => $interval, 'agg' => $agg,
-            ]));
+            ]);
         }
 
-        $points = self::aggregated($query, $interval, $agg, $validated['sensor_type'] ?? null);
+        $points = self::aggregated($query, $interval, $agg, $validated['sensor_type'] ?? null, $maxPoints);
 
-        abort_if(count($points) > self::MAX_POINTS, 422,
-            'Too many points ('.count($points).', max '.self::MAX_POINTS.'); narrow the range or use a coarser interval.');
+        if (count($points) > $maxPoints) {
+            throw new ApiException(
+                ApiErrorCode::TooManyPoints,
+                'Too many points ('.count($points).', max '.$maxPoints.'); narrow the range or use a coarser interval.',
+            );
+        }
 
-        return response()->json([
-            'points' => array_values($points),
-            'interval_requested' => $requested, 'interval_applied' => $interval, 'agg' => $agg,
-        ]);
+        return new ReadingSeriesResource($points, $requested, $interval, $agg);
     }
 
-    public function summary(ReadingSummaryRequest $request): JsonResponse
+    public function summary(ReadingSummaryRequest $request): ReadingSummaryResource
     {
         $validated = $request->validated();
 
@@ -110,7 +106,7 @@ class ReadingController extends Controller
         $rain = $rainId ? (float) (clone $base)->where('sensor_type_id', $rainId)->sum('mm_delta') : 0.0;
         $windMax = $windId ? (clone $base)->where('sensor_type_id', $windId)->max('value') : null;
 
-        return response()->json([
+        return new ReadingSummaryResource([
             'device_id' => $device->device_id,
             'from' => $from, 'to' => $to,
             'temp_min' => $temp?->mn !== null ? (float) $temp->mn : null,
@@ -140,7 +136,7 @@ class ReadingController extends Controller
     }
 
     /** @return array<int, array<string, mixed>> */
-    private static function aggregated(mixed $query, string $interval, string $agg, ?string $sensorType): array
+    private static function aggregated(mixed $query, string $interval, string $agg, ?string $sensorType, int $maxPoints): array
     {
         $bucket = match ($interval) {
             '1m' => "date_trunc('minute', device_time)",
@@ -163,7 +159,7 @@ class ReadingController extends Controller
             ->selectRaw("{$bucket} AS bucket, sensor_type_id, ".($isWindDir
                 ? 'AVG(SIN(RADIANS(value))) AS s, AVG(COS(RADIANS(value))) AS c, COUNT(*) AS n'
                 : "{$valueExpr} AS v, COUNT(*) AS n"))
-            ->groupByRaw('1, 2')->orderBy('bucket')->limit(self::MAX_POINTS + 1)->get();
+            ->groupByRaw('1, 2')->orderBy('bucket')->orderBy('sensor_type_id')->limit($maxPoints + 1)->get();
 
         $types = SensorType::whereIn('id', $rows->pluck('sensor_type_id'))->pluck('code', 'id');
 

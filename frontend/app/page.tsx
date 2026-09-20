@@ -27,6 +27,7 @@ import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { formatWib } from "@/lib/format"
 import type { Overview } from "@/lib/types"
+import type { Resource } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
 type Filter = "all" | "online" | "offline"
@@ -71,14 +72,15 @@ function StatCard({
 }
 
 export default function OverviewPage() {
-  const { data, error, isLoading, mutate } = useSWR<Overview>(
+  const { data, error, isLoading, mutate } = useSWR<Resource<Overview>>(
     "/dashboard/overview"
   )
+  const overview = data?.data
   const [query, setQuery] = useState("")
   const [filter, setFilter] = useState<Filter>("all")
 
   const devices = useMemo(() => {
-    const list = data?.devices ?? []
+    const list = overview?.devices ?? []
     const q = query.trim().toLowerCase()
     return list.filter((d) => {
       if (filter === "online" && !d.is_online) return false
@@ -93,7 +95,7 @@ export default function OverviewPage() {
   }, [data, query, filter])
 
   const avgTemp = useMemo(() => {
-    const temps = (data?.devices ?? []).filter((d) => d.temp_air != null)
+    const temps = (overview?.devices ?? []).filter((d) => d.temp_air != null)
     if (temps.length === 0) return null
     return temps.reduce((s, d) => s + (d.temp_air ?? 0), 0) / temps.length
   }, [data])
@@ -102,8 +104,8 @@ export default function OverviewPage() {
     <AppShell
       title="Overview"
       description={
-        data
-          ? `${data.counts.online}/${data.counts.total} stations online · auto-refresh 60s`
+        overview
+          ? `${overview.counts.online}/${overview.counts.total} stations online · auto-refresh 60s`
           : "Live status of all weather stations"
       }
       actions={
@@ -113,7 +115,7 @@ export default function OverviewPage() {
       }
     >
       {/* Stats */}
-      {isLoading || !data ? (
+      {isLoading || !overview ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {Array.from({ length: 4 }).map((_, i) => (
             <Skeleton key={i} className="h-[92px]" />
@@ -124,19 +126,19 @@ export default function OverviewPage() {
           <StatCard
             icon={RadioTower}
             label="Total stations"
-            value={String(data.counts.total)}
-            hint={`${data.devices.length} shown`}
+            value={String(overview.counts.total)}
+            hint={`${overview.devices.length} shown`}
           />
           <StatCard
             icon={Wifi}
             label="Online"
-            value={String(data.counts.online)}
+            value={String(overview.counts.online)}
             hint="payload within 15 min"
           />
           <StatCard
             icon={WifiOff}
             label="Offline"
-            value={String(data.counts.offline)}
+            value={String(overview.counts.offline)}
             hint="no payload > 15 min"
           />
           <StatCard
@@ -211,11 +213,11 @@ export default function OverviewPage() {
           <CardContent className="flex flex-col items-center gap-3 px-6 py-10 text-center">
             <CardTitle className="text-base">No stations match</CardTitle>
             <CardDescription>
-              {data && data.devices.length > 0
+              {overview && overview.devices.length > 0
                 ? "Try a different search or status filter."
                 : "No devices yet. Provision the first station."}
             </CardDescription>
-            {data && data.devices.length === 0 && (
+            {overview && overview.devices.length === 0 && (
               <Link href="/devices/new" className={buttonVariants()}>
                 New device
               </Link>

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Exceptions\ApiException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\AttachSensorRequest;
 use App\Http\Requests\ListCalibrationsRequest;
@@ -20,6 +21,7 @@ use App\Models\Sensor;
 use App\Models\SensorCalibration;
 use App\Models\SensorInstallation;
 use App\Models\SensorType;
+use App\Support\ApiErrorCode;
 use App\Support\DeviceLookup;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -50,9 +52,10 @@ class SensorController extends Controller
         }
 
         // Sort column is validated against an allow-list in ListSensorTypesRequest.
-        $query->orderBy($validated['sort'] ?? 'code', $validated['direction'] ?? 'asc');
+        $direction = $validated['direction'] ?? 'asc';
+        $query->orderBy($validated['sort'] ?? 'code', $direction)->orderBy('id', $direction);
 
-        return SensorTypeResource::collection($query->paginate($validated['per_page'] ?? 15));
+        return SensorTypeResource::collection($query->paginate($request->perPage()));
     }
 
     public function storeType(StoreSensorTypeRequest $request): JsonResponse
@@ -81,8 +84,9 @@ class SensorController extends Controller
     {
         $type = SensorType::query()->find($id) ?? abort(404, 'Sensor type not found.');
 
-        abort_if(Sensor::query()->where('sensor_type_id', $type->id)->exists(), 409,
-            'Sensor type is in use.');
+        if (Sensor::query()->where('sensor_type_id', $type->id)->exists()) {
+            throw new ApiException(ApiErrorCode::SensorTypeInUse, 'Sensor type is in use.');
+        }
 
         $type->delete();
 
@@ -113,10 +117,11 @@ class SensorController extends Controller
         }
 
         // Sort column is validated against an allow-list in ListSensorsRequest.
-        $query->orderBy($validated['sort'] ?? 'id', $validated['direction'] ?? 'asc');
+        $direction = $validated['direction'] ?? 'asc';
+        $query->orderBy($validated['sort'] ?? 'id', $direction)->orderBy('id', $direction);
 
         return SensorResource::collection(
-            $query->paginate($validated['per_page'] ?? 15)
+            $query->paginate($request->perPage())
         );
     }
 
@@ -139,8 +144,9 @@ class SensorController extends Controller
     {
         $sensor = Sensor::query()->find($id) ?? abort(404, 'Sensor not found.');
 
-        abort_if($sensor->installations()->whereNull('removed_at')->exists(), 409,
-            'Detach sensor before deleting.');
+        if ($sensor->installations()->whereNull('removed_at')->exists()) {
+            throw new ApiException(ApiErrorCode::SensorMounted, 'Detach sensor before deleting.');
+        }
 
         $sensor->delete();
 
@@ -152,8 +158,9 @@ class SensorController extends Controller
         $device = DeviceLookup::findOrFail($id);
         $validated = $request->validated();
 
-        abort_if(SensorInstallation::query()->where('sensor_id', $validated['sensor_id'])->whereNull('removed_at')->exists(),
-            409, 'Sensor is attached elsewhere.');
+        if (SensorInstallation::query()->where('sensor_id', $validated['sensor_id'])->whereNull('removed_at')->exists()) {
+            throw new ApiException(ApiErrorCode::SensorAttachedElsewhere, 'Sensor is attached elsewhere.');
+        }
 
         // Close any open installation of the same sensor type on this device (one slot per type).
         $sensor = Sensor::query()->find($validated['sensor_id']);
@@ -191,8 +198,8 @@ class SensorController extends Controller
 
         return SensorCalibrationResource::collection(
             $sensor->calibrations()
-                ->orderByDesc('effective_at')
-                ->paginate($request->validated()['per_page'] ?? 15)
+                ->orderByDesc('effective_at')->orderByDesc('id')
+                ->paginate($request->perPage())
         );
     }
 

@@ -4,8 +4,10 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\LoginRequest;
+use App\Http\Resources\AuthUserResource;
+use App\Http\Resources\LogoutResource;
+use App\Http\Resources\TokenResource;
 use App\Models\User;
-use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
@@ -18,7 +20,7 @@ class AuthController extends Controller
      * Device ingestion uses a separate mechanism (Bearer api_key + device.auth);
      * this endpoint is for human dashboard users only.
      */
-    public function login(LoginRequest $request): JsonResponse
+    public function login(LoginRequest $request): TokenResource
     {
         $validated = $request->validated();
 
@@ -30,26 +32,21 @@ class AuthController extends Controller
             ]);
         }
 
-        return response()->json([
-            'token' => $user->createToken('dashboard')->plainTextToken,
-            'token_type' => 'Bearer',
-            'user' => ['id' => $user->id, 'name' => $user->name, 'email' => $user->email],
-        ]);
+        return new TokenResource(
+            $user->createToken('dashboard')->plainTextToken,
+            ['id' => $user->id, 'name' => $user->name, 'email' => $user->email],
+        );
     }
 
-    public function me(Request $request): JsonResponse
+    public function me(Request $request): AuthUserResource
     {
-        $user = $request->user();
-
-        return response()->json([
-            'id' => $user->id, 'name' => $user->name, 'email' => $user->email,
-        ]);
+        return new AuthUserResource($request->user());
     }
 
-    public function logout(Request $request): JsonResponse
+    public function logout(Request $request): LogoutResource
     {
         $request->user()->currentAccessToken()?->delete();
 
-        return response()->json(['revoked' => true]);
+        return new LogoutResource;
     }
 }

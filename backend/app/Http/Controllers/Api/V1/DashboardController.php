@@ -3,14 +3,14 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Http\Resources\DashboardOverviewResource;
 use App\Models\Device;
 use App\Models\SensorReading;
 use App\Models\SensorType;
-use Illuminate\Http\JsonResponse;
 
 class DashboardController extends Controller
 {
-    public function overview(): JsonResponse
+    public function overview(): DashboardOverviewResource
     {
         $devices = Device::query()->with('location')->orderBy('id')->get();
 
@@ -37,13 +37,13 @@ class DashboardController extends Controller
             ];
         });
 
-        return response()->json([
-            'devices' => $cards,
-            'counts' => [
+        return new DashboardOverviewResource(
+            $cards->values()->all(),
+            [
                 'total' => $devices->count(),
                 'online' => $cards->where('is_online', true)->count(),
                 'offline' => $cards->where('is_online', false)->count(),
             ],
-        ]);
+        );
     }
 }

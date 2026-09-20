@@ -90,7 +90,7 @@ class F3EdgeCasesTest extends TestCase
             $this->headers()
         );
 
-        $response->assertStatus(201)->assertJsonPath('accepted', 1);
+        $response->assertStatus(201)->assertJsonPath('data.accepted', 1);
 
         $reading = $this->readingFor('temp_air');
         $this->assertSame(gmdate('Y-m-d H:i:s', $future), $reading->device_time->utc()->toDateTimeString());
@@ -155,9 +155,9 @@ class F3EdgeCasesTest extends TestCase
         $second = $this->postJson('/api/v1/ingest/telemetry', $payload, $this->headers());
         $third = $this->postJson('/api/v1/ingest/telemetry', $payload, $this->headers());
 
-        $first->assertStatus(201)->assertJsonPath('accepted', 1);
-        $second->assertStatus(200)->assertJsonPath('duplicates', 1);
-        $third->assertStatus(200)->assertJsonPath('duplicates', 1);
+        $first->assertStatus(201)->assertJsonPath('data.accepted', 1);
+        $second->assertStatus(200)->assertJsonPath('data.duplicates', 1);
+        $third->assertStatus(200)->assertJsonPath('data.duplicates', 1);
         $this->assertSame(1, SensorReading::query()->count());
     }
 
@@ -199,8 +199,8 @@ class F3EdgeCasesTest extends TestCase
             'device_id' => 'WS-GRT-001', 'fw' => '1.4.2', 'batch' => $batch,
         ], $this->headers())
             ->assertStatus(201)
-            ->assertJsonPath('accepted', 500)
-            ->assertJsonPath('duplicates', 0);
+            ->assertJsonPath('data.accepted', 500)
+            ->assertJsonPath('data.duplicates', 0);
 
         $this->assertSame(500, SensorReading::query()->count());
 

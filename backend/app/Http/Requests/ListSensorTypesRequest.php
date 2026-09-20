@@ -7,6 +7,8 @@ use Illuminate\Validation\Rule;
 
 class ListSensorTypesRequest extends FormRequest
 {
+    use Concerns\HasPagination;
+
     public function authorize(): bool
     {
         return true;
@@ -15,14 +17,12 @@ class ListSensorTypesRequest extends FormRequest
     /** @return array<string, array<int, mixed>> */
     public function rules(): array
     {
-        return [
+        return array_merge([
             'q' => ['nullable', 'string', 'max:100'],
             'unit' => ['nullable', 'string', 'max:50'],
             'in_use' => ['nullable', 'boolean'],
             'sort' => ['nullable', Rule::in(['id', 'code', 'unit'])],
             'direction' => ['nullable', Rule::in(['asc', 'desc'])],
-            'page' => ['nullable', 'integer', 'min:1'],
-            'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
-        ];
+        ], $this->paginationRules());
     }
 }

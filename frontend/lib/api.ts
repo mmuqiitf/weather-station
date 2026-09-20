@@ -43,16 +43,22 @@ export function clearToken() {
 
 export class ApiError extends Error {
   status: number
+  code?: string
   errors?: Record<string, string[]>
+  requestId?: string
 
   constructor(
     status: number,
     message: string,
-    errors?: Record<string, string[]>
+    errors?: Record<string, string[]>,
+    code?: string,
+    requestId?: string
   ) {
     super(message)
     this.status = status
     this.errors = errors
+    this.code = code
+    this.requestId = requestId
   }
 }
 
@@ -84,7 +90,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const body = (await res.json().catch(() => null)) as
     | (T & {
         message?: string
+        code?: string
         errors?: Record<string, string[]>
+        request_id?: string
       })
     | null
   if (!res.ok) {
@@ -92,7 +100,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     const message =
       (body as { message?: string } | null)?.message ??
       `Request failed with status ${res.status}`
-    throw new ApiError(res.status, message, body?.errors)
+    throw new ApiError(
+      res.status,
+      message,
+      body?.errors,
+      body?.code,
+      body?.request_id
+    )
   }
   return body as T
 }

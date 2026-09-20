@@ -4,6 +4,7 @@ namespace App\Providers;
 
 use App\Models\Device;
 use App\Models\User;
+use App\Support\ApiErrorCode;
 use Dedoc\Scramble\Scramble;
 use Dedoc\Scramble\Support\Generator\OpenApi;
 use Dedoc\Scramble\Support\Generator\SecurityScheme;
@@ -43,8 +44,11 @@ class AppServiceProvider extends ServiceProvider
 
             return Limit::perMinute(60)->by(
                 $device instanceof Device ? 'device:'.$device->id : $request->ip()
-            )->response(function () {
-                return response()->json(['message' => 'Too many ingestion requests.'], 429);
+            )->response(function (Request $request, array $headers) {
+                return response()->json([
+                    'message' => 'Too many ingestion requests.',
+                    'code' => ApiErrorCode::RateLimited->value,
+                ], 429, $headers);
             });
         });
     }

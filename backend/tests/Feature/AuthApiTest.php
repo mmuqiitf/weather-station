@@ -34,12 +34,12 @@ class AuthApiTest extends TestCase
         $login = $this->postJson('/api/v1/auth/login', [
             'email' => 'admin@weather.local', 'password' => 'password',
         ]);
-        $login->assertOk()->assertJsonStructure(['token', 'token_type', 'user']);
-        $token = $login->json('token');
+        $login->assertOk()->assertJsonStructure(['data' => ['token', 'token_type', 'user']]);
+        $token = $login->json('data.token');
         $this->assertNotEmpty($token);
 
         $this->getJson('/api/v1/auth/me', ['Authorization' => "Bearer {$token}"])
-            ->assertOk()->assertJsonPath('email', 'admin@weather.local');
+            ->assertOk()->assertJsonPath('data.email', 'admin@weather.local');
 
         $this->getJson('/api/v1/devices', ['Authorization' => "Bearer {$token}"])->assertOk();
 

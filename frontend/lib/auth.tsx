@@ -9,7 +9,7 @@ import {
   useState,
   type ReactNode,
 } from "react"
-import { api, clearToken, getToken, setToken } from "@/lib/api"
+import { api, clearToken, getToken, setToken, type Resource } from "@/lib/api"
 
 export interface AuthUser {
   id: number
@@ -48,9 +48,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return
     }
     try {
-      const me = await api.get<{ data?: AuthUser } | AuthUser>("/auth/me")
-      const resolved = (me as { data?: AuthUser }).data ?? (me as AuthUser)
-      setUser(resolved)
+      const me = await api.get<Resource<AuthUser>>("/auth/me")
+      setUser(me.data)
     } catch {
       // Invalid / revoked token — drop it; the api layer also redirects on 401.
       clearToken()
@@ -73,15 +72,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(
     async (email: string, password: string, remember: boolean) => {
-      const res = await api.post<LoginResponse>("/auth/login", {
+      const res = await api.post<Resource<LoginResponse>>("/auth/login", {
         email,
         password,
       })
-      if (!res.token) throw new Error("Login failed: no token returned.")
-      setToken(res.token, remember)
-      setTokenState(res.token)
-      setUser(res.user ?? null)
-      if (!res.user) {
+      if (!res.data.token) throw new Error("Login failed: no token returned.")
+      setToken(res.data.token, remember)
+      setTokenState(res.data.token)
+      setUser(res.data.user ?? null)
+      if (!res.data.user) {
         await refresh()
       }
     },
@@ -90,7 +89,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(async () => {
     try {
-      await api.post<{ revoked: boolean }>("/auth/logout")
+      await api.post<Resource<{ revoked: boolean }>>("/auth/logout")
     } catch {
       // Token may already be invalid — still clear local state.
     }

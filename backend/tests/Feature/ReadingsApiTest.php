@@ -56,7 +56,10 @@ class ReadingsApiTest extends TestCase
         $this->reading('temp_air', '2026-09-19 10:00:00', 25.0);
         $this->reading('temp_air', '2026-09-19 10:01:00', 26.0);
 
-        $this->getJson('/api/v1/readings?device_id=WS-R-001&sensor_type=temp_air&interval=raw')
+        $this->getJson(
+            '/api/v1/readings?device_id=WS-R-001&sensor_type=temp_air&interval=raw'
+            .'&from=2026-09-19T09:00:00Z&to=2026-09-19T11:00:00Z'
+        )
             ->assertOk()
             ->assertJsonPath('interval_applied', 'raw')
             ->assertJsonCount(2, 'data');
@@ -70,9 +73,9 @@ class ReadingsApiTest extends TestCase
         $response = $this->getJson(
             '/api/v1/readings?device_id=WS-R-001&sensor_type=rain_counter&interval=1d&agg=sum'
             .'&from=2026-09-18T00:00:00Z&to=2026-09-20T00:00:00Z'
-        )->assertOk()->assertJsonPath('interval_applied', '1d');
+        )->assertOk()->assertJsonPath('data.interval_applied', '1d');
 
-        $points = $response->json('points');
+        $points = $response->json('data.points');
         $this->assertCount(2, $points);
         $this->assertEqualsWithDelta(1.0, $points[0]['v'], 0.0001);
         $this->assertEqualsWithDelta(0.4, $points[1]['v'], 0.0001);
@@ -88,7 +91,7 @@ class ReadingsApiTest extends TestCase
             .'&from=2026-09-19T10:00:00Z&to=2026-09-19T11:00:00Z'
         )->assertOk();
 
-        $points = $response->json('points');
+        $points = $response->json('data.points');
         $this->assertCount(1, $points);
         $this->assertEqualsWithDelta(25.0, $points[0]['v'], 0.0001);
         $this->assertSame(2, $points[0]['n']);
@@ -105,7 +108,7 @@ class ReadingsApiTest extends TestCase
             .'&from=2026-09-19T10:00:00Z&to=2026-09-19T11:00:00Z'
         )->assertOk();
 
-        $value = $response->json('points.0.v');
+        $value = $response->json('data.points.0.v');
         $this->assertTrue(
             abs($value) < 0.001 || abs($value - 360) < 0.001,
             "Expected vector mean near 0°/360°, got {$value}."
