@@ -1,16 +1,26 @@
-import { Geist, Geist_Mono, Public_Sans } from "next/font/google"
+import { Geist_Mono, Public_Sans } from "next/font/google"
+import type { Metadata } from "next"
 
-import "./globals.css";
-import { ThemeProvider } from "@/components/theme-provider";
-import { Providers } from "@/components/providers";
-import { cn } from "@/lib/utils";
+import "./globals.css"
+import { ThemeProvider } from "@/components/theme-provider"
+import { Providers } from "@/components/providers"
+import { cn } from "@/lib/utils"
 
-const publicSans = Public_Sans({subsets:['latin'],variable:'--font-sans'})
+const publicSans = Public_Sans({ subsets: ["latin"], variable: "--font-sans" })
 
 const fontMono = Geist_Mono({
   subsets: ["latin"],
   variable: "--font-mono",
 })
+
+export const metadata: Metadata = {
+  title: {
+    default: "Weather Station",
+    template: "%s · Weather Station",
+  },
+  description:
+    "IoT weather station monitoring dashboard — live station status, time-series charts, and device management.",
+}
 
 export default function RootLayout({
   children,
@@ -21,10 +31,17 @@ export default function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
-      className={cn("antialiased", fontMono.variable, "font-sans", publicSans.variable)}
+      className={cn(
+        "antialiased",
+        fontMono.variable,
+        "font-sans",
+        publicSans.variable
+      )}
     >
       <body>
-        <ThemeProvider><Providers>{children}</Providers></ThemeProvider>
+        <ThemeProvider>
+          <Providers>{children}</Providers>
+        </ThemeProvider>
       </body>
     </html>
   )

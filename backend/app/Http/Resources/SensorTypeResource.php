@@ -19,6 +19,7 @@ class SensorTypeResource extends JsonResource
             'min_value' => $this->min_value !== null ? (float) $this->min_value : null,
             'max_value' => $this->max_value !== null ? (float) $this->max_value : null,
             'precision' => $this->precision,
+            'sensors_count' => $this->whenCounted('sensors_count'),
         ];
     }
 }

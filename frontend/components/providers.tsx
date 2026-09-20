@@ -1,8 +1,9 @@
 "use client"
 
-import type { ReactNode } from "react";
-import { SWRConfig } from "swr";
-import { api } from "@/lib/api";
+import type { ReactNode } from "react"
+import { SWRConfig } from "swr"
+import { api } from "@/lib/api"
+import { AuthProvider } from "@/lib/auth"
 
 export function Providers({ children }: { children: ReactNode }) {
   return (
@@ -15,7 +16,7 @@ export function Providers({ children }: { children: ReactNode }) {
           err?.status === 429 || (err?.status ?? 500) >= 500,
       }}
     >
-      {children}
+      <AuthProvider>{children}</AuthProvider>
     </SWRConfig>
-  );
+  )
 }

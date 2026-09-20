@@ -37,7 +37,7 @@ Gagal validasi domain (mis. tipe sensor tak dikenal): 422 `{"message": "…", "e
 ## Device management
 
 `POST /devices` body `{device_id, name, location_id?|location{name,latitude,longitude,altitude_m?}}` → 201 `{data: {…, status:"provisioned", api_key_plain:"ws_…(sekali tampil)"}}` (API Resource).
-`GET /devices?status&location_id&q&page&per_page` → 200 `{data: [{id,device_id,name,status,is_online,last_seen_at,firmware_version,location{id,…}}], links, meta}` (paginator default).
+`GET /devices?status&location_id&online=1|0&q&sort=id|device_id|name|status|last_seen_at|created_at&direction=asc|desc&page&per_page` → 200 `{data: [{id,device_id,name,status,is_online,last_seen_at,firmware_version,location{id,…}}], links, meta}` (paginator default; default `sort=id`; `q` = substring `device_id`/`name` case-insensitive; `online=1` hanya terlihat ≤15 mnt, `online=0` basi + belum pernah terlihat).
 `GET /devices/{id}` (id numerik atau `device_id`) → 200 `{data}` / 404 `{"message": "Device not found."}`.
 `PATCH /devices/{id}` `{name?,location_id?,status?}` — transisi terkontrol `provisioned→active→decommissioned`; ilegal → 422 dengan message.
 `DELETE /devices/{id}` → 204, soft delete (histori reading/heartbeat dipertahankan).
@@ -46,8 +46,9 @@ Gagal validasi domain (mis. tipe sensor tak dikenal): 422 `{"message": "…", "e
 
 ## Sensor management
 
-`GET /sensor-types` → `{data: [{id,code,unit,min_value,max_value,precision}]}`. `POST /sensor-types` `{code,unit,min_value?,max_value?,precision?}` → 201 `{data}`.
-`GET /sensors` (paginator default `{data: [{id,serial,sensor_type_id,sensor_type,current_device_id}], …}`), `POST /sensors` `{serial,sensor_type_id}` → 201 `{data}`,
+`GET /sensor-types?q&unit&in_use=1|0&sort=id|code|unit&direction=asc|desc&page&per_page` → paginator default `{data: [{id,code,unit,min_value,max_value,precision,sensors_count}], …}` (default `sort=code`; `unit` = exact match; `in_use=1` hanya yang dipakai sensor). `POST /sensor-types` `{code,unit,min_value?,max_value?,precision?}` → 201 `{data}`.
+`GET /sensor-types/{id}` → 200 `{data}` / 404. `PATCH /sensor-types/{id}` `{code?,unit?,min_value?,max_value?,precision?}` → `{data}` (422 bila `code` duplikat). `DELETE /sensor-types/{id}` → 204 (409 bila dipakai sensor; 404 bila tak ada).
+`GET /sensors?q&sensor_type_id&mounted=1|0&sort=id|serial|sensor_type_id|created_at&direction&page&per_page` → paginator default `{data: [{id,serial,sensor_type_id,sensor_type,current_device_id}], …}` (`q` = substring serial case-insensitive; `mounted=1` hanya yang terpasang). `POST /sensors` `{serial,sensor_type_id}` → 201 `{data}`,
 `PATCH /sensors/{id}` `{serial?}` → `{data}`, `DELETE /sensors/{id}` → 204 (409 bila masih terpasang).
 `POST /devices/{id}/sensors` `{sensor_id,installed_at?}` → 201 `{data}` installation (409 bila sensor terpasang di device lain; slot tipe sama yang terbuka ditutup otomatis).
 `DELETE /devices/{id}/sensors/{sensorId}` → 200 `{data}` installation dengan `removed_at` terisi (404 bila tidak ada instalasi aktif).

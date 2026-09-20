@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\Models\Device;
+use App\Models\User;
 use Dedoc\Scramble\Scramble;
 use Dedoc\Scramble\Support\Generator\OpenApi;
 use Dedoc\Scramble\Support\Generator\SecurityScheme;
@@ -29,7 +30,9 @@ class AppServiceProvider extends ServiceProvider
     {
         // Reviewer take-home test: API docs carry no secrets, allow public access
         // in every environment (Scramble only opens /docs/api in `local` by default).
-        Gate::define('viewApiDocs', fn () => true);
+        // NOTE: the first parameter must explicitly allow guests (?User), otherwise
+        // Laravel skips the gate entirely for unauthenticated requests and it 403s.
+        Gate::define('viewApiDocs', fn (?User $user) => true);
 
         Scramble::configure()
             ->withDocumentTransformers(function (OpenApi $openApi): void {

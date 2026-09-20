@@ -5,10 +5,12 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\AttachSensorRequest;
 use App\Http\Requests\ListSensorsRequest;
+use App\Http\Requests\ListSensorTypesRequest;
 use App\Http\Requests\StoreCalibrationRequest;
 use App\Http\Requests\StoreSensorRequest;
 use App\Http\Requests\StoreSensorTypeRequest;
 use App\Http\Requests\UpdateSensorRequest;
+use App\Http\Requests\UpdateSensorTypeRequest;
 use App\Http\Resources\SensorCalibrationResource;
 use App\Http\Resources\SensorInstallationResource;
 use App\Http\Resources\SensorResource;
@@ -24,9 +26,32 @@ use Illuminate\Http\Response;
 
 class SensorController extends Controller
 {
-    public function indexTypes(): AnonymousResourceCollection
+    public function indexTypes(ListSensorTypesRequest $request): AnonymousResourceCollection
     {
-        return SensorTypeResource::collection(SensorType::query()->orderBy('code')->get());
+        $validated = $request->validated();
+
+        $query = SensorType::query()->withCount('sensors');
+
+        if (! empty($validated['q'])) {
+            $query->where('code', 'ilike', '%'.$validated['q'].'%');
+        }
+
+        if (! empty($validated['unit'])) {
+            $query->where('unit', $validated['unit']);
+        }
+
+        if (isset($validated['in_use'])) {
+            if ($validated['in_use']) {
+                $query->whereHas('sensors');
+            } else {
+                $query->whereDoesntHave('sensors');
+            }
+        }
+
+        // Sort column is validated against an allow-list in ListSensorTypesRequest.
+        $query->orderBy($validated['sort'] ?? 'code', $validated['direction'] ?? 'asc');
+
+        return SensorTypeResource::collection($query->paginate($validated['per_page'] ?? 15));
     }
 
     public function storeType(StoreSensorTypeRequest $request): JsonResponse
@@ -35,13 +60,62 @@ class SensorController extends Controller
             ->response()->setStatusCode(201);
     }
 
+    public function showType(int $id): SensorTypeResource
+    {
+        $type = SensorType::query()->find($id) ?? abort(404, 'Sensor type not found.');
+
+        return new SensorTypeResource($type);
+    }
+
+    public function updateType(UpdateSensorTypeRequest $request, int $id): SensorTypeResource
+    {
+        $type = SensorType::query()->find($id) ?? abort(404, 'Sensor type not found.');
+
+        $type->fill($request->validated())->save();
+
+        return new SensorTypeResource($type->fresh());
+    }
+
+    public function destroyType(int $id): Response
+    {
+        $type = SensorType::query()->find($id) ?? abort(404, 'Sensor type not found.');
+
+        abort_if(Sensor::query()->where('sensor_type_id', $type->id)->exists(), 409,
+            'Sensor type is in use.');
+
+        $type->delete();
+
+        return response()->noContent();
+    }
+
     public function index(ListSensorsRequest $request): AnonymousResourceCollection
     {
         $validated = $request->validated();
 
+        $query = Sensor::query()->with(['type', 'installations']);
+
+        if (! empty($validated['q'])) {
+            $query->where('serial', 'ilike', '%'.$validated['q'].'%');
+        }
+
+        if (! empty($validated['sensor_type_id'])) {
+            $query->where('sensor_type_id', $validated['sensor_type_id']);
+        }
+
+        if (isset($validated['mounted'])) {
+            $open = fn ($w) => $w->whereNull('removed_at');
+            if ($validated['mounted']) {
+                $query->whereHas('installations', $open);
+            } else {
+                $query->whereDoesntHave('installations', $open);
+            }
+        }
+
+        // Sort column is validated against an allow-list in ListSensorsRequest.
+        $query->orderBy($validated['sort'] ?? 'id', $validated['direction'] ?? 'asc');
+
         return SensorResource::collection(
-            Sensor::query()->with(['type', 'installations'])
-                ->orderBy('id')->paginate($validated['per_page'] ?? 15)
+            $query->paginate($validated['per_page'] ?? 15)
         );
     }
 

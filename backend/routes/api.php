@@ -38,6 +38,9 @@ Route::prefix('v1')->group(function () {
         // Sensor management.
         Route::get('sensor-types', [SensorController::class, 'indexTypes']);
         Route::post('sensor-types', [SensorController::class, 'storeType']);
+        Route::get('sensor-types/{id}', [SensorController::class, 'showType']);
+        Route::patch('sensor-types/{id}', [SensorController::class, 'updateType']);
+        Route::delete('sensor-types/{id}', [SensorController::class, 'destroyType']);
         Route::get('sensors', [SensorController::class, 'index']);
         Route::post('sensors', [SensorController::class, 'store']);
         Route::patch('sensors/{id}', [SensorController::class, 'update']);

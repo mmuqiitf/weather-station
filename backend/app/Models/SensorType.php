@@ -17,6 +17,11 @@ class SensorType extends Model
         ];
     }
 
+    public function sensors(): HasMany
+    {
+        return $this->hasMany(Sensor::class);
+    }
+
     public function readings(): HasMany
     {
         return $this->hasMany(SensorReading::class);

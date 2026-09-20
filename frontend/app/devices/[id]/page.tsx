@@ -1,8 +1,24 @@
-"use client";
+"use client"
 
-import Link from "next/link";
-import { use, useMemo, useState } from "react";
-import useSWR from "swr";
+import Link from "next/link"
+import { useRouter } from "next/navigation"
+import { use, useMemo, useState } from "react"
+import useSWR from "swr"
+import {
+  ArrowLeft,
+  Check,
+  CloudRain,
+  Compass,
+  Copy,
+  Droplets,
+  Gauge,
+  KeyRound,
+  Loader2,
+  Pencil,
+  Sun,
+  Thermometer,
+  Wind,
+} from "lucide-react"
 import {
   Bar,
   BarChart,
@@ -14,234 +30,779 @@ import {
   Tooltip,
   XAxis,
   YAxis,
-} from "recharts";
-import { formatWib } from "@/lib/format";
-import type { LatestResponse, SeriesPoint } from "@/lib/types";
+} from "recharts"
+import { AppShell } from "@/components/app-shell"
+import {
+  DeleteDialog,
+  DeviceStatusBadge,
+  OnlineBadge,
+  QualityBadge,
+  ResultAlert,
+  type SubmitResult,
+} from "@/components/crud"
+import { Button, buttonVariants } from "@/components/ui/button"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Skeleton } from "@/components/ui/skeleton"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { api, type Resource } from "@/lib/api"
+import { formatWib } from "@/lib/format"
+import type {
+  DeviceDetail,
+  LatestResponse,
+  SeriesPoint,
+  Summary,
+} from "@/lib/types"
+import { cn } from "@/lib/utils"
 
-type Range = "24h" | "7d" | "30d";
+type Range = "24h" | "7d" | "30d"
 
-const RANGE_CFG: Record<Range, { label: string; hours: number; series: string; rain: string }> = {
-  "24h": { label: "24 jam", hours: 24, series: "raw", rain: "1h" },
-  "7d": { label: "7 hari", hours: 168, series: "1m", rain: "1h" },
-  "30d": { label: "30 hari", hours: 720, series: "1h", rain: "1d" },
-};
+const RANGE_CFG: Record<
+  Range,
+  { label: string; hours: number; series: string; rain: string }
+> = {
+  "24h": { label: "24h", hours: 24, series: "raw", rain: "1h" },
+  "7d": { label: "7d", hours: 168, series: "1m", rain: "1h" },
+  "30d": { label: "30d", hours: 720, series: "1h", rain: "1d" },
+}
 
-const ROSE_SECTORS = ["U", "TL", "T", "TG", "S", "BD", "B", "BL"];
+const ROSE_SECTORS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
 
-function usePoints(deviceId: string, sensor: string, interval: string, from: string, to: string, agg = "avg") {
+const SENSOR_META: Record<
+  string,
+  { label: string; icon: React.ComponentType<{ className?: string }> }
+> = {
+  temp_air: { label: "Air temp", icon: Thermometer },
+  humidity: { label: "Humidity", icon: Droplets },
+  pressure: { label: "Pressure", icon: Gauge },
+  rain_counter: { label: "Rain counter", icon: CloudRain },
+  wind_speed: { label: "Wind speed", icon: Wind },
+  wind_dir: { label: "Wind direction", icon: Compass },
+  solar_rad: { label: "Solar radiation", icon: Sun },
+}
+
+const TOOLTIP_STYLE = {
+  backgroundColor: "var(--popover)",
+  border: "1px solid var(--border)",
+  borderRadius: "8px",
+  color: "var(--popover-foreground)",
+  fontSize: "12px",
+} as const
+
+function usePoints(
+  deviceId: string,
+  sensor: string,
+  interval: string,
+  from: string,
+  to: string,
+  agg = "avg"
+) {
   const { data, error, isLoading } = useSWR<{ points: SeriesPoint[] }>(
-    `/readings?device_id=${deviceId}&sensor_type=${sensor}&interval=${interval}&agg=${agg}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
-  );
-  return { data: data as unknown as { points: SeriesPoint[] } | undefined, error, isLoading };
+    `/readings?device_id=${deviceId}&sensor_type=${sensor}&interval=${interval}&agg=${agg}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
+  )
+  return {
+    data: data as unknown as { points: SeriesPoint[] } | undefined,
+    error,
+    isLoading,
+  }
 }
 
 function tickWib(t: string) {
-  return new Intl.DateTimeFormat("id-ID", {
+  return new Intl.DateTimeFormat("en-GB", {
     timeZone: "Asia/Jakarta",
     day: "2-digit",
     month: "short",
     hour: "2-digit",
     minute: "2-digit",
-  }).format(new Date(t));
+  }).format(new Date(t))
+}
+
+function formatTooltipLabel(label: React.ReactNode) {
+  return tickWib(String(label))
 }
 
 /** 8-sector wind rose (SVG, no extra lib): spoke length ∝ frequency per direction. */
 function WindRose({ points }: { points: SeriesPoint[] }) {
-  const size = 220;
-  const c = size / 2;
-  const maxR = c - 28;
+  const size = 220
+  const c = size / 2
+  const maxR = c - 28
   const counts = useMemo(() => {
-    const bins = new Array(8).fill(0);
+    const bins = new Array(8).fill(0)
     for (const p of points) {
-      const deg = ((p.v % 360) + 360) % 360;
-      bins[Math.floor(((deg + 22.5) % 360) / 45)] += 1;
+      const deg = ((p.v % 360) + 360) % 360
+      bins[Math.floor(((deg + 22.5) % 360) / 45)] += 1
     }
-    return bins as number[];
-  }, [points]);
-  const max = Math.max(1, ...counts);
+    return bins as number[]
+  }, [points])
+  const max = Math.max(1, ...counts)
   return (
     <div className="flex flex-col items-center gap-1">
       <svg width={size} height={size} role="img" aria-label="Wind rose">
         {[0.25, 0.5, 0.75, 1].map((f) => (
-          <circle key={f} cx={c} cy={c} r={maxR * f} fill="none" strokeWidth={1} className="stroke-muted" strokeDasharray={f === 1 ? undefined : "2 3"} />
+          <circle
+            key={f}
+            cx={c}
+            cy={c}
+            r={maxR * f}
+            fill="none"
+            strokeWidth={1}
+            className="stroke-muted"
+            strokeDasharray={f === 1 ? undefined : "2 3"}
+          />
         ))}
         {counts.map((n, i) => {
-          const angle = (i * 45 - 90) * (Math.PI / 180);
-          const len = maxR * (n / max);
-          const x2 = c + len * Math.cos(angle);
-          const y2 = c + len * Math.sin(angle);
-          const lx = c + (maxR + 16) * Math.cos(angle);
-          const ly = c + (maxR + 16) * Math.sin(angle);
+          const angle = (i * 45 - 90) * (Math.PI / 180)
+          const len = maxR * (n / max)
+          const x2 = c + len * Math.cos(angle)
+          const y2 = c + len * Math.sin(angle)
+          const lx = c + (maxR + 16) * Math.cos(angle)
+          const ly = c + (maxR + 16) * Math.sin(angle)
           return (
             <g key={ROSE_SECTORS[i]}>
-              <line x1={c} y1={c} x2={x2} y2={y2} strokeWidth={n === max && n > 0 ? 5 : 3} className="stroke-foreground" strokeLinecap="round" />
-              <text x={lx} y={ly} textAnchor="middle" dominantBaseline="middle" fontSize={11} className="fill-muted-foreground">
+              <line
+                x1={c}
+                y1={c}
+                x2={x2}
+                y2={y2}
+                strokeWidth={n === max && n > 0 ? 5 : 3}
+                className="stroke-primary"
+                strokeLinecap="round"
+              />
+              <text
+                x={lx}
+                y={ly}
+                textAnchor="middle"
+                dominantBaseline="middle"
+                fontSize={11}
+                className="fill-muted-foreground"
+              >
                 {ROSE_SECTORS[i]}
               </text>
             </g>
-          );
+          )
         })}
-        <circle cx={c} cy={c} r={3} className="fill-foreground" />
+        <circle cx={c} cy={c} r={3} className="fill-primary" />
       </svg>
       <p className="text-xs text-muted-foreground">
         {points.length === 0
-          ? "Belum ada data arah angin pada rentang ini."
-          : `n=${points.length} · dominan ${ROSE_SECTORS[counts.indexOf(max)]} (${max} titik)`}
+          ? "No wind-direction data in this range."
+          : `n=${points.length} · prevailing ${ROSE_SECTORS[counts.indexOf(max)]} (${max} points)`}
       </p>
     </div>
-  );
+  )
 }
 
-export default function DeviceDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = use(params);
-  const [range, setRange] = useState<Range>("24h");
-  const cfg = RANGE_CFG[range];
+function ChartFallback({ message }: { message: string }) {
+  return (
+    <div className="p-8 text-center text-sm text-muted-foreground">
+      {message}
+    </div>
+  )
+}
+
+export default function DeviceDetailPage({
+  params,
+}: {
+  params: Promise<{ id: string }>
+}) {
+  const { id } = use(params)
+  const router = useRouter()
+  const [range, setRange] = useState<Range>("24h")
+  const [result, setResult] = useState<SubmitResult | null>(null)
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [deleteBusy, setDeleteBusy] = useState(false)
+  const [rotateOpen, setRotateOpen] = useState(false)
+  const [rotateBusy, setRotateBusy] = useState(false)
+  const [rotatedKey, setRotatedKey] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
+  const cfg = RANGE_CFG[range]
 
   // Window actually sent to the API — range buttons change the time window, not just the interval.
   const { from, to } = useMemo(() => {
-    const end = new Date();
-    const start = new Date(end.getTime() - cfg.hours * 3600 * 1000);
-    return { from: start.toISOString(), to: end.toISOString() };
-  }, [cfg.hours]);
+    const end = new Date()
+    const start = new Date(end.getTime() - cfg.hours * 3600 * 1000)
+    return { from: start.toISOString(), to: end.toISOString() }
+  }, [cfg.hours])
 
-  const latest = useSWR<LatestResponse>(`/devices/${id}/readings/latest`);
-  const temp = usePoints(id, "temp_air", cfg.series, from, to);
-  const hum = usePoints(id, "humidity", cfg.series, from, to);
-  const rain = usePoints(id, "rain_counter", cfg.rain, from, to, "sum");
-  const wind = usePoints(id, "wind_speed", cfg.rain, from, to);
-  const windDir = usePoints(id, "wind_dir", cfg.rain, from, to);
+  const latest = useSWR<LatestResponse>(`/devices/${id}/readings/latest`)
+  const device = useSWR(`/devices/${id}`, (p: string) =>
+    api.get<Resource<DeviceDetail>>(p)
+  )
+  const temp = usePoints(id, "temp_air", cfg.series, from, to)
+  const hum = usePoints(id, "humidity", cfg.series, from, to)
+  const rain = usePoints(id, "rain_counter", cfg.rain, from, to, "sum")
+  const wind = usePoints(id, "wind_speed", cfg.rain, from, to)
+  const windDir = usePoints(id, "wind_dir", cfg.rain, from, to)
+  const summary = useSWR<Summary>(
+    `/readings/summary?device_id=${id}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
+  )
 
-  const latestData = latest.data;
+  const latestData = latest.data
+  const detail = device.data?.data
+  const deviceKey = detail?.device_id ?? decodeURIComponent(id)
 
   // Merge temp + humidity by timestamp for the dual-axis chart.
-  const merged = (() => {
-    const map = new Map<string, { t: string; temp?: number; hum?: number }>();
+  const merged = useMemo(() => {
+    const map = new Map<string, { t: string; temp?: number; hum?: number }>()
     for (const p of temp.data?.points ?? []) {
-      map.set(p.t, { t: p.t, temp: p.v, hum: map.get(p.t)?.hum });
+      map.set(p.t, { t: p.t, temp: p.v, hum: map.get(p.t)?.hum })
     }
     for (const p of hum.data?.points ?? []) {
-      map.set(p.t, { t: p.t, temp: map.get(p.t)?.temp, hum: p.v });
+      map.set(p.t, { t: p.t, temp: map.get(p.t)?.temp, hum: p.v })
     }
-    return [...map.values()].sort((a, b) => +new Date(a.t) - +new Date(b.t));
-  })();
+    return [...map.values()].sort((a, b) => +new Date(a.t) - +new Date(b.t))
+  }, [temp.data, hum.data])
+
+  async function confirmDelete() {
+    setDeleteBusy(true)
+    try {
+      await api.del(`/devices/${id}`)
+      router.push("/devices")
+    } catch (err) {
+      setResult({
+        kind: "err",
+        title: "Delete failed",
+        text: (err as Error).message,
+      })
+      setDeleteOpen(false)
+    } finally {
+      setDeleteBusy(false)
+    }
+  }
+
+  async function confirmRotate() {
+    setRotateBusy(true)
+    try {
+      const res = await api.post<{ device_id: string; api_key_plain: string }>(
+        `/devices/${id}/credentials/rotate`
+      )
+      setRotatedKey(res.api_key_plain)
+    } catch (err) {
+      setResult({
+        kind: "err",
+        title: "Rotate failed",
+        text: (err as Error).message,
+      })
+      setRotateOpen(false)
+    } finally {
+      setRotateBusy(false)
+    }
+  }
+
+  function closeRotate(open: boolean) {
+    if (!open) {
+      setRotateOpen(false)
+      setRotatedKey(null)
+      setCopied(false)
+    }
+  }
+
+  async function copyKey() {
+    if (!rotatedKey) return
+    try {
+      await navigator.clipboard.writeText(rotatedKey)
+      setCopied(true)
+    } catch {
+      // clipboard unavailable — key is still visible for manual copy
+    }
+  }
 
   return (
-    <div className="mx-auto flex min-h-svh max-w-5xl flex-col gap-6 p-6">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <Link href="/" className="text-sm text-muted-foreground">← Semua stasiun</Link>
-          <h1 className="text-xl font-semibold">{latestData?.device_id ?? id}</h1>
-          <p className="text-sm text-muted-foreground">
-            {latestData
-              ? `${latestData.is_online ? "online" : "offline"} · update ${formatWib(latestData.last_seen_at)}`
-              : "Memuat…"}
-          </p>
+    <AppShell
+      title={deviceKey}
+      description={
+        detail
+          ? `${detail.name} · ${detail.is_online ? "Online" : "Offline"}`
+          : latestData
+            ? `${latestData.is_online ? "Online" : "Offline"} · updated ${formatWib(latestData.last_seen_at)}`
+            : "Loading station…"
+      }
+      actions={
+        <div className="flex items-center gap-2">
+          <Link
+            href={`/devices/${id}/edit`}
+            className={buttonVariants({ variant: "outline" })}
+          >
+            <Pencil className="size-4" /> Edit
+          </Link>
+          <Button variant="destructive" onClick={() => setDeleteOpen(true)}>
+            Delete
+          </Button>
+          <div
+            className="flex gap-1 rounded-lg border bg-muted/50 p-1"
+            role="tablist"
+            aria-label="Time range"
+          >
+            {(Object.keys(RANGE_CFG) as Range[]).map((r) => (
+              <button
+                key={r}
+                role="tab"
+                aria-selected={range === r}
+                onClick={() => setRange(r)}
+                className={cn(
+                  "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+                  range === r
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                {RANGE_CFG[r].label}
+              </button>
+            ))}
+          </div>
         </div>
-        <div className="flex gap-2">
-          {(Object.keys(RANGE_CFG) as Range[]).map((r) => (
-            <button
-              key={r}
-              onClick={() => setRange(r)}
-              className={`rounded-md border px-3 py-1.5 text-sm ${range === r ? "bg-foreground text-background" : ""}`}
-            >
-              {RANGE_CFG[r].label}
-            </button>
-          ))}
-        </div>
-      </header>
+      }
+    >
+      <Link
+        href="/devices"
+        className="flex w-fit items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+      >
+        <ArrowLeft className="size-4" /> All devices
+      </Link>
 
-      {latest.error && <div className="rounded-lg border p-8 text-center text-sm text-red-600">Gagal memuat: {(latest.error as Error).message}</div>}
+      {result && <ResultAlert result={result} />}
 
-      {latestData && (
-        <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          {latestData.sensors.map((s) => (
-            <div key={s.sensor_type} className="rounded-lg border p-3">
-              <div className="text-xs text-muted-foreground">{s.sensor_type}</div>
-              <div className="text-lg font-semibold">
-                {s.value} <span className="text-xs font-normal">{s.unit}</span>
+      {device.isLoading || !detail ? (
+        !device.error && <Skeleton className="h-48" />
+      ) : (
+        <div className="grid gap-6 lg:grid-cols-2">
+          <Card>
+            <CardHeader>
+              <CardTitle>Station</CardTitle>
+              <CardDescription>Identity, state, and placement.</CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-2 text-sm">
+              <div className="flex justify-between gap-4">
+                <span className="text-muted-foreground">Device ID</span>
+                <span className="font-mono font-medium">
+                  {detail.device_id}
+                </span>
               </div>
-              {s.quality !== "ok" && (
-                <div className="text-xs text-amber-600">flag: {s.quality}</div>
-              )}
-            </div>
-          ))}
+              <div className="flex justify-between gap-4">
+                <span className="text-muted-foreground">Name</span>
+                <span>{detail.name}</span>
+              </div>
+              <div className="flex justify-between gap-4">
+                <span className="text-muted-foreground">Status</span>
+                <DeviceStatusBadge status={detail.status} />
+              </div>
+              <div className="flex justify-between gap-4">
+                <span className="text-muted-foreground">State</span>
+                <OnlineBadge online={detail.is_online} />
+              </div>
+              <div className="flex justify-between gap-4">
+                <span className="text-muted-foreground">Location</span>
+                <span className="text-muted-foreground">
+                  {detail.location?.name ?? "—"}
+                </span>
+              </div>
+              <div className="flex justify-between gap-4">
+                <span className="text-muted-foreground">Firmware</span>
+                <span className="font-mono">
+                  {detail.firmware_version ?? "—"}
+                </span>
+              </div>
+              <div className="flex justify-between gap-4">
+                <span className="text-muted-foreground">Last seen</span>
+                <span className="text-muted-foreground">
+                  {formatWib(detail.last_seen_at)}
+                </span>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>API key</CardTitle>
+              <CardDescription>
+                The raw key is shown only at creation or rotation. Flash it to
+                the device firmware.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-3">
+              <div>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setRotateOpen(true)
+                    setRotatedKey(null)
+                  }}
+                >
+                  <KeyRound className="size-4" /> Rotate API key
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Rotating revokes the current key immediately. The device must be
+                re-provisioned with the new key.
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+      {device.error && (
+        <ResultAlert
+          result={{
+            kind: "err",
+            title: "Failed to load station",
+            text: (device.error as Error).message,
+          }}
+        />
+      )}
+
+      {latest.error && (
+        <Card>
+          <CardContent className="px-6 py-8 text-center text-sm text-destructive">
+            Failed to load: {(latest.error as Error).message}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Latest readings */}
+      {latest.isLoading || !latestData ? (
+        !latest.error && (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <Skeleton key={i} className="h-24" />
+            ))}
+          </div>
+        )
+      ) : (
+        <section
+          className="grid grid-cols-2 gap-3 sm:grid-cols-4"
+          aria-label="Latest readings"
+        >
+          {latestData.sensors.map((s) => {
+            const meta = SENSOR_META[s.sensor_type] ?? {
+              label: s.sensor_type,
+              icon: Gauge,
+            }
+            const Icon = meta.icon
+            return (
+              <Card key={s.sensor_type} className="gap-0 py-0">
+                <CardContent className="flex flex-col gap-1 px-4 py-3.5">
+                  <span className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                    <span className="flex items-center gap-1 truncate">
+                      <Icon className="size-3.5 shrink-0" />
+                      {meta.label}
+                    </span>
+                    {s.quality !== "ok" && (
+                      <span className="shrink-0">
+                        <QualityBadge quality={s.quality} />
+                      </span>
+                    )}
+                  </span>
+                  <span className="text-xl leading-tight font-semibold">
+                    {s.value}{" "}
+                    <span className="text-xs font-normal text-muted-foreground">
+                      {s.unit}
+                    </span>
+                  </span>
+                  <span className="text-[11px] text-muted-foreground">
+                    {formatWib(s.device_time)}
+                  </span>
+                </CardContent>
+              </Card>
+            )
+          })}
         </section>
       )}
 
-      <section className="rounded-lg border p-4">
-        <h2 className="mb-2 text-sm font-medium">Suhu & kelembapan ({cfg.series})</h2>
-        {temp.isLoading || hum.isLoading ? (
-          <div className="p-8 text-center text-sm text-muted-foreground">Memuat chart…</div>
-        ) : temp.error || hum.error ? (
-          <div className="p-8 text-center text-sm text-red-600">Gagal memuat seri suhu/kelembapan.</div>
-        ) : merged.length === 0 ? (
-          <div className="p-8 text-center text-sm text-muted-foreground">Tidak ada data pada rentang ini.</div>
-        ) : (
-          <ResponsiveContainer width="100%" height={260}>
-            <LineChart data={merged}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="t" tickFormatter={tickWib} minTickGap={40} tick={{ fontSize: 11 }} />
-              <YAxis yAxisId="temp" tick={{ fontSize: 11 }} />
-              <YAxis yAxisId="hum" orientation="right" tick={{ fontSize: 11 }} />
-              <Tooltip />
-              <Legend />
-              <Line yAxisId="temp" type="monotone" dataKey="temp" name="suhu °C" dot={false} connectNulls={false} />
-              <Line yAxisId="hum" type="monotone" dataKey="hum" name="RH %" dot={false} connectNulls={false} />
-            </LineChart>
-          </ResponsiveContainer>
-        )}
-        <p className="mt-1 text-xs text-muted-foreground">Gap = garis putus (data offline tidak diinterpolasi).</p>
-      </section>
+      {/* Range summary */}
+      <Card className="gap-0 py-0">
+        <CardContent className="grid grid-cols-2 gap-4 px-5 py-4 sm:grid-cols-5">
+          {summary.isLoading ? (
+            Array.from({ length: 5 }).map((_, i) => (
+              <Skeleton key={i} className="h-12" />
+            ))
+          ) : summary.error || !summary.data ? (
+            <p className="col-span-full text-sm text-muted-foreground">
+              Summary unavailable for this range.
+            </p>
+          ) : (
+            [
+              [
+                "Min temp",
+                summary.data.temp_min != null
+                  ? `${summary.data.temp_min.toFixed(1)} °C`
+                  : "—",
+              ],
+              [
+                "Max temp",
+                summary.data.temp_max != null
+                  ? `${summary.data.temp_max.toFixed(1)} °C`
+                  : "—",
+              ],
+              [
+                "Avg temp",
+                summary.data.temp_avg != null
+                  ? `${summary.data.temp_avg.toFixed(1)} °C`
+                  : "—",
+              ],
+              ["Rain total", `${summary.data.rain_total_mm.toFixed(1)} mm`],
+              [
+                "Max wind",
+                summary.data.wind_max != null
+                  ? `${summary.data.wind_max.toFixed(1)} m/s`
+                  : "—",
+              ],
+            ].map(([label, value]) => (
+              <div key={label}>
+                <p className="text-xs text-muted-foreground">{label}</p>
+                <p className="text-lg leading-tight font-semibold">{value}</p>
+              </div>
+            ))
+          )}
+        </CardContent>
+      </Card>
 
-      <section className="rounded-lg border p-4">
-        <h2 className="mb-2 text-sm font-medium">Curah hujan per {cfg.rain} (mm, dari rain_counter)</h2>
-        {rain.isLoading ? (
-          <div className="p-8 text-center text-sm text-muted-foreground">Memuat chart…</div>
-        ) : rain.error ? (
-          <div className="p-8 text-center text-sm text-red-600">Gagal memuat data hujan.</div>
-        ) : (
-          <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={rain.data?.points ?? []}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="t" tickFormatter={tickWib} minTickGap={40} tick={{ fontSize: 11 }} />
-              <YAxis tick={{ fontSize: 11 }} />
-              <Tooltip />
-              <Bar dataKey="v" name="mm" />
-            </BarChart>
-          </ResponsiveContainer>
-        )}
-      </section>
+      <Card>
+        <CardHeader>
+          <CardTitle>Temperature & humidity ({cfg.series})</CardTitle>
+          <CardDescription>
+            Gaps are not interpolated — offline periods break the line.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {temp.isLoading || hum.isLoading ? (
+            <ChartFallback message="Loading chart…" />
+          ) : temp.error || hum.error ? (
+            <ChartFallback message="Failed to load temperature/humidity series." />
+          ) : merged.length === 0 ? (
+            <ChartFallback message="No data in this range." />
+          ) : (
+            <ResponsiveContainer width="100%" height={260}>
+              <LineChart data={merged}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                <XAxis
+                  dataKey="t"
+                  tickFormatter={tickWib}
+                  minTickGap={40}
+                  tick={{ fontSize: 11 }}
+                  stroke="var(--muted-foreground)"
+                />
+                <YAxis
+                  yAxisId="temp"
+                  tick={{ fontSize: 11 }}
+                  stroke="var(--muted-foreground)"
+                />
+                <YAxis
+                  yAxisId="hum"
+                  orientation="right"
+                  tick={{ fontSize: 11 }}
+                  stroke="var(--muted-foreground)"
+                />
+                <Tooltip
+                  contentStyle={{ ...TOOLTIP_STYLE }}
+                  labelFormatter={formatTooltipLabel}
+                />
+                <Legend />
+                <Line
+                  yAxisId="temp"
+                  type="monotone"
+                  dataKey="temp"
+                  name="temp °C"
+                  stroke="var(--chart-1)"
+                  strokeWidth={2}
+                  dot={false}
+                  connectNulls={false}
+                />
+                <Line
+                  yAxisId="hum"
+                  type="monotone"
+                  dataKey="hum"
+                  name="RH %"
+                  stroke="var(--chart-2)"
+                  strokeWidth={2}
+                  dot={false}
+                  connectNulls={false}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          )}
+        </CardContent>
+      </Card>
 
-      <section className="rounded-lg border p-4">
-        <h2 className="mb-2 text-sm font-medium">Kecepatan angin (m/s)</h2>
-        {wind.isLoading ? (
-          <div className="p-8 text-center text-sm text-muted-foreground">Memuat chart…</div>
-        ) : wind.error ? (
-          <div className="p-8 text-center text-sm text-red-600">Gagal memuat data angin.</div>
-        ) : (
-          <ResponsiveContainer width="100%" height={200}>
-            <LineChart data={wind.data?.points ?? []}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="t" tickFormatter={tickWib} minTickGap={40} tick={{ fontSize: 11 }} />
-              <YAxis tick={{ fontSize: 11 }} />
-              <Tooltip />
-              <Line type="monotone" dataKey="v" name="m/s" dot={false} connectNulls={false} />
-            </LineChart>
-          </ResponsiveContainer>
-        )}
-      </section>
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Rainfall per {cfg.rain}</CardTitle>
+            <CardDescription>
+              Millimeters, derived from the rain counter.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {rain.isLoading ? (
+              <ChartFallback message="Loading chart…" />
+            ) : rain.error ? (
+              <ChartFallback message="Failed to load rainfall data." />
+            ) : (
+              <ResponsiveContainer width="100%" height={200}>
+                <BarChart data={rain.data?.points ?? []}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                  <XAxis
+                    dataKey="t"
+                    tickFormatter={tickWib}
+                    minTickGap={40}
+                    tick={{ fontSize: 11 }}
+                    stroke="var(--muted-foreground)"
+                  />
+                  <YAxis
+                    tick={{ fontSize: 11 }}
+                    stroke="var(--muted-foreground)"
+                  />
+                  <Tooltip
+                    contentStyle={{ ...TOOLTIP_STYLE }}
+                    labelFormatter={formatTooltipLabel}
+                  />
+                  <Bar
+                    dataKey="v"
+                    name="mm"
+                    fill="var(--chart-3)"
+                    radius={[4, 4, 0, 0]}
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </CardContent>
+        </Card>
 
-      <section className="rounded-lg border p-4">
-        <h2 className="mb-2 text-sm font-medium">Wind rose — arah angin ({cfg.rain})</h2>
-        {windDir.isLoading ? (
-          <div className="p-8 text-center text-sm text-muted-foreground">Memuat wind rose…</div>
-        ) : windDir.error ? (
-          <div className="p-8 text-center text-sm text-red-600">Gagal memuat arah angin.</div>
-        ) : (
-          <WindRose points={windDir.data?.points ?? []} />
-        )}
-        <p className="mt-1 text-center text-xs text-muted-foreground">U=utara (0°) · searah jarum jam tiap 45° · panjang spoke ∝ frekuensi.</p>
-      </section>
-    </div>
-  );
+        <Card>
+          <CardHeader>
+            <CardTitle>Wind speed (m/s)</CardTitle>
+            <CardDescription>Aggregated per {cfg.rain}.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {wind.isLoading ? (
+              <ChartFallback message="Loading chart…" />
+            ) : wind.error ? (
+              <ChartFallback message="Failed to load wind data." />
+            ) : (
+              <ResponsiveContainer width="100%" height={200}>
+                <LineChart data={wind.data?.points ?? []}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                  <XAxis
+                    dataKey="t"
+                    tickFormatter={tickWib}
+                    minTickGap={40}
+                    tick={{ fontSize: 11 }}
+                    stroke="var(--muted-foreground)"
+                  />
+                  <YAxis
+                    tick={{ fontSize: 11 }}
+                    stroke="var(--muted-foreground)"
+                  />
+                  <Tooltip
+                    contentStyle={{ ...TOOLTIP_STYLE }}
+                    labelFormatter={formatTooltipLabel}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="v"
+                    name="m/s"
+                    stroke="var(--chart-4)"
+                    strokeWidth={2}
+                    dot={false}
+                    connectNulls={false}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Wind rose — direction ({cfg.rain})</CardTitle>
+          <CardDescription>
+            N = north (0°) · clockwise every 45° · spoke length ∝ frequency.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex justify-center">
+          {windDir.isLoading ? (
+            <ChartFallback message="Loading wind rose…" />
+          ) : windDir.error ? (
+            <ChartFallback message="Failed to load wind direction." />
+          ) : (
+            <WindRose points={windDir.data?.points ?? []} />
+          )}
+        </CardContent>
+      </Card>
+
+      <Dialog open={rotateOpen} onOpenChange={closeRotate}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {rotatedKey ? "New API key" : `Rotate key for ${deviceKey}?`}
+            </DialogTitle>
+            <DialogDescription>
+              {rotatedKey
+                ? "The old key is revoked immediately. Copy the new key now — it is shown only once."
+                : "The current key is revoked immediately. The device must be re-provisioned with the new key."}
+            </DialogDescription>
+          </DialogHeader>
+          {rotatedKey ? (
+            <Alert>
+              <KeyRound />
+              <AlertTitle>Copy before closing</AlertTitle>
+              <AlertDescription className="font-mono break-all">
+                {rotatedKey}
+              </AlertDescription>
+            </Alert>
+          ) : null}
+          <DialogFooter>
+            {rotatedKey ? (
+              <>
+                <Button variant="outline" onClick={copyKey}>
+                  {copied ? (
+                    <Check className="size-4" />
+                  ) : (
+                    <Copy className="size-4" />
+                  )}
+                  {copied ? "Copied" : "Copy key"}
+                </Button>
+                <Button onClick={() => closeRotate(false)}>Done</Button>
+              </>
+            ) : (
+              <>
+                <Button
+                  variant="outline"
+                  onClick={() => closeRotate(false)}
+                  disabled={rotateBusy}
+                >
+                  Cancel
+                </Button>
+                <Button onClick={confirmRotate} disabled={rotateBusy}>
+                  {rotateBusy && <Loader2 className="size-4 animate-spin" />}
+                  Rotate key
+                </Button>
+              </>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <DeleteDialog
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        title={`Delete ${deviceKey}?`}
+        description="Soft delete — readings and heartbeat history are preserved."
+        busy={deleteBusy}
+        onConfirm={confirmDelete}
+      />
+    </AppShell>
+  )
 }

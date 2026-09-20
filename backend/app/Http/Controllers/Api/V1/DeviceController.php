@@ -22,7 +22,7 @@ class DeviceController extends Controller
     {
         $validated = $request->validated();
 
-        $query = Device::query()->with('location')->orderBy('id');
+        $query = Device::query()->with('location');
 
         if (! empty($validated['status'])) {
             $query->where('status', $validated['status']);
@@ -32,10 +32,23 @@ class DeviceController extends Controller
             $query->where('location_id', $validated['location_id']);
         }
 
+        // Online mirrors Device::isOnline(): seen within the last 15 minutes.
+        if (isset($validated['online'])) {
+            $threshold = now()->subMinutes(15);
+            if ($validated['online']) {
+                $query->where('last_seen_at', '>=', $threshold);
+            } else {
+                $query->where(fn ($w) => $w->whereNull('last_seen_at')->orWhere('last_seen_at', '<', $threshold));
+            }
+        }
+
         if (! empty($validated['q'])) {
             $q = '%'.$validated['q'].'%';
-            $query->where(fn ($w) => $w->where('device_id', 'like', $q)->orWhere('name', 'like', $q));
+            $query->where(fn ($w) => $w->where('device_id', 'ilike', $q)->orWhere('name', 'ilike', $q));
         }
+
+        // Sort column is validated against an allow-list in ListDevicesRequest.
+        $query->orderBy($validated['sort'] ?? 'id', $validated['direction'] ?? 'asc');
 
         return DeviceResource::collection($query->paginate($validated['per_page'] ?? 15));
     }
