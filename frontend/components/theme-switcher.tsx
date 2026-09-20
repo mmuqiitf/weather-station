@@ -32,7 +32,11 @@ export function ThemeModeToggle({ className }: { className?: string }) {
       variant="outline"
       size="icon"
       onClick={cycle}
-      title={`Theme: ${theme ?? "system"} (click to change)`}
+      title={
+        mounted
+          ? `Theme: ${theme ?? "system"} (click to change)`
+          : "Toggle color mode"
+      }
       aria-label="Toggle color mode"
       className={className}
     >
