@@ -30,7 +30,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { ApiError, api, type Resource } from "@/lib/api"
+import { ApiError, api, type Paginated, type Resource } from "@/lib/api"
 import type { DeviceDetail, DeviceLocation } from "@/lib/types"
 
 const NONE = "none"
@@ -48,8 +48,8 @@ export default function NewDevicePage() {
   >(null)
   const [copied, setCopied] = useState(false)
 
-  const locations = useSWR("/locations", (p: string) =>
-    api.get<Resource<DeviceLocation[]>>(p)
+  const locations = useSWR("/locations?per_page=100", (p: string) =>
+    api.get<Paginated<DeviceLocation>>(p)
   )
   const locationOptions = locations.data?.data ?? []
 

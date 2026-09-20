@@ -39,7 +39,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { useDebouncedValue } from "@/hooks/use-debounced-value"
-import { api, type Paginated, type Resource } from "@/lib/api"
+import { api, type Paginated } from "@/lib/api"
 import { formatWib } from "@/lib/format"
 import type { DeviceDetail, DeviceLocation } from "@/lib/types"
 
@@ -96,8 +96,8 @@ function DevicesTable() {
     (p: string) => api.get<Paginated<DeviceDetail>>(p),
     { keepPreviousData: true }
   )
-  const locations = useSWR("/locations", (p: string) =>
-    api.get<Resource<DeviceLocation[]>>(p)
+  const locations = useSWR("/locations?per_page=100", (p: string) =>
+    api.get<Paginated<DeviceLocation>>(p)
   )
 
   const devices = useMemo(() => data?.data ?? [], [data])

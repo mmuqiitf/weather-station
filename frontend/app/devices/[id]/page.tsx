@@ -213,6 +213,40 @@ function ChartFallback({ message }: { message: string }) {
   )
 }
 
+/** Rainfall bar chart — mm per bucket, already summed server-side from mm_delta. */
+function RainBarChart({
+  points,
+  isLoading,
+  error,
+}: {
+  points?: SeriesPoint[]
+  isLoading: boolean
+  error?: unknown
+}) {
+  if (isLoading) return <ChartFallback message="Loading chart…" />
+  if (error) return <ChartFallback message="Failed to load rainfall data." />
+  return (
+    <ResponsiveContainer width="100%" height={200}>
+      <BarChart data={points ?? []}>
+        <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+        <XAxis
+          dataKey="t"
+          tickFormatter={tickWib}
+          minTickGap={40}
+          tick={{ fontSize: 11 }}
+          stroke="var(--muted-foreground)"
+        />
+        <YAxis tick={{ fontSize: 11 }} stroke="var(--muted-foreground)" />
+        <Tooltip
+          contentStyle={{ ...TOOLTIP_STYLE }}
+          labelFormatter={formatTooltipLabel}
+        />
+        <Bar dataKey="v" name="mm" fill="var(--chart-3)" radius={[4, 4, 0, 0]} />
+      </BarChart>
+    </ResponsiveContainer>
+  )
+}
+
 export default function DeviceDetailPage({
   params,
 }: {
@@ -243,7 +277,8 @@ export default function DeviceDetailPage({
   )
   const temp = usePoints(id, "temp_air", cfg.series, from, to)
   const hum = usePoints(id, "humidity", cfg.series, from, to)
-  const rain = usePoints(id, "rain_counter", cfg.rain, from, to, "sum")
+  const rainHourly = usePoints(id, "rain_counter", "1h", from, to, "sum")
+  const rainDaily = usePoints(id, "rain_counter", "1d", from, to, "sum")
   const wind = usePoints(id, "wind_speed", cfg.rain, from, to)
   const windDir = usePoints(id, "wind_dir", cfg.rain, from, to)
   const summary = useSWR<Summary>(
@@ -638,91 +673,80 @@ export default function DeviceDetailPage({
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>Rainfall per {cfg.rain}</CardTitle>
+            <CardTitle>Rainfall per hour (mm)</CardTitle>
             <CardDescription>
-              Millimeters, derived from the rain counter.
+              Hourly totals derived from the rain counter.
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {rain.isLoading ? (
-              <ChartFallback message="Loading chart…" />
-            ) : rain.error ? (
-              <ChartFallback message="Failed to load rainfall data." />
-            ) : (
-              <ResponsiveContainer width="100%" height={200}>
-                <BarChart data={rain.data?.points ?? []}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                  <XAxis
-                    dataKey="t"
-                    tickFormatter={tickWib}
-                    minTickGap={40}
-                    tick={{ fontSize: 11 }}
-                    stroke="var(--muted-foreground)"
-                  />
-                  <YAxis
-                    tick={{ fontSize: 11 }}
-                    stroke="var(--muted-foreground)"
-                  />
-                  <Tooltip
-                    contentStyle={{ ...TOOLTIP_STYLE }}
-                    labelFormatter={formatTooltipLabel}
-                  />
-                  <Bar
-                    dataKey="v"
-                    name="mm"
-                    fill="var(--chart-3)"
-                    radius={[4, 4, 0, 0]}
-                  />
-                </BarChart>
-              </ResponsiveContainer>
-            )}
+            <RainBarChart
+              points={rainHourly.data?.points}
+              isLoading={rainHourly.isLoading}
+              error={rainHourly.error}
+            />
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader>
-            <CardTitle>Wind speed (m/s)</CardTitle>
-            <CardDescription>Aggregated per {cfg.rain}.</CardDescription>
+            <CardTitle>Rainfall per day (mm)</CardTitle>
+            <CardDescription>
+              Daily totals derived from the rain counter.
+            </CardDescription>
           </CardHeader>
           <CardContent>
-            {wind.isLoading ? (
-              <ChartFallback message="Loading chart…" />
-            ) : wind.error ? (
-              <ChartFallback message="Failed to load wind data." />
-            ) : (
-              <ResponsiveContainer width="100%" height={200}>
-                <LineChart data={wind.data?.points ?? []}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                  <XAxis
-                    dataKey="t"
-                    tickFormatter={tickWib}
-                    minTickGap={40}
-                    tick={{ fontSize: 11 }}
-                    stroke="var(--muted-foreground)"
-                  />
-                  <YAxis
-                    tick={{ fontSize: 11 }}
-                    stroke="var(--muted-foreground)"
-                  />
-                  <Tooltip
-                    contentStyle={{ ...TOOLTIP_STYLE }}
-                    labelFormatter={formatTooltipLabel}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="v"
-                    name="m/s"
-                    stroke="var(--chart-4)"
-                    strokeWidth={2}
-                    dot={false}
-                    connectNulls={false}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            )}
+            <RainBarChart
+              points={rainDaily.data?.points}
+              isLoading={rainDaily.isLoading}
+              error={rainDaily.error}
+            />
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Wind speed (m/s)</CardTitle>
+          <CardDescription>Aggregated per {cfg.rain}.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {wind.isLoading ? (
+            <ChartFallback message="Loading chart…" />
+          ) : wind.error ? (
+            <ChartFallback message="Failed to load wind data." />
+          ) : (
+            <ResponsiveContainer width="100%" height={200}>
+              <LineChart data={wind.data?.points ?? []}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                <XAxis
+                  dataKey="t"
+                  tickFormatter={tickWib}
+                  minTickGap={40}
+                  tick={{ fontSize: 11 }}
+                  stroke="var(--muted-foreground)"
+                />
+                <YAxis
+                  tick={{ fontSize: 11 }}
+                  stroke="var(--muted-foreground)"
+                />
+                <Tooltip
+                  contentStyle={{ ...TOOLTIP_STYLE }}
+                  labelFormatter={formatTooltipLabel}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="v"
+                  name="m/s"
+                  stroke="var(--chart-4)"
+                  strokeWidth={2}
+                  dot={false}
+                  connectNulls={false}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

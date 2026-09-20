@@ -34,7 +34,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { api, type Paginated, type Resource } from "@/lib/api"
+import { api, type Paginated } from "@/lib/api"
 import { formatWib } from "@/lib/format"
 import type { Calibration, DeviceDetail, Sensor, SensorType } from "@/lib/types"
 
@@ -67,8 +67,10 @@ export default function SensorDetailPage({
     api.get<Paginated<DeviceDetail>>(p)
   )
   const calibrations = useSWR(
-    Number.isInteger(sensorId) ? `/sensors/${sensorId}/calibrations` : null,
-    (p: string) => api.get<Resource<Calibration[]>>(p)
+    Number.isInteger(sensorId)
+      ? `/sensors/${sensorId}/calibrations?per_page=100`
+      : null,
+    (p: string) => api.get<Paginated<Calibration>>(p)
   )
 
   const sensor = useMemo(

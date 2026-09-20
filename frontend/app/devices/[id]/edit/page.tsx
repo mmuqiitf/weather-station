@@ -30,7 +30,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
-import { ApiError, api, type Resource } from "@/lib/api"
+import { ApiError, api, type Paginated, type Resource } from "@/lib/api"
 import type { DeviceDetail, DeviceLocation, DeviceStatus } from "@/lib/types"
 
 const KEEP = "keep"
@@ -54,8 +54,8 @@ export default function EditDevicePage({
   const device = useSWR(`/devices/${id}`, (p: string) =>
     api.get<Resource<DeviceDetail>>(p)
   )
-  const locations = useSWR("/locations", (p: string) =>
-    api.get<Resource<DeviceLocation[]>>(p)
+  const locations = useSWR("/locations?per_page=100", (p: string) =>
+    api.get<Paginated<DeviceLocation>>(p)
   )
 
   const detail = device.data?.data
