@@ -28,7 +28,7 @@ class AuthController extends Controller
 
         if ($user === null || ! Hash::check($validated['password'], $user->password)) {
             throw ValidationException::withMessages([
-                'email' => ['Kredensial tidak valid.'],
+                'email' => ['Credentials are not valid.'],
             ]);
         }
 
