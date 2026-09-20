@@ -34,6 +34,9 @@ class AuthenticateDevice
 
     private function unauthenticated(): JsonResponse
     {
-        return response()->json(['message' => 'Invalid or missing device credentials.'], 401);
+        return response()->json([
+            'message' => 'Invalid or missing device credentials.',
+            'code' => 'unauthenticated',
+        ], 401);
     }
 }

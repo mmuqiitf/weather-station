@@ -3,7 +3,9 @@
 namespace Tests\Feature;
 
 use App\Models\Device;
+use App\Models\Location;
 use App\Models\Sensor;
+use App\Models\SensorCalibration;
 use App\Models\SensorType;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -162,5 +164,34 @@ class ListingApiTest extends TestCase
             ->assertJsonPath('data.0.sensors_count', 0);
 
         $this->getJson('/api/v1/sensor-types?in_use=yes')->assertStatus(422);
+    }
+
+    public function test_locations_are_paginated(): void
+    {
+        for ($i = 1; $i <= 3; $i++) {
+            Location::query()->create(['name' => "Loc {$i}", 'latitude' => 0, 'longitude' => 0]);
+        }
+
+        $this->getJson('/api/v1/locations?per_page=2')->assertOk()
+            ->assertJsonPath('meta.total', 3)
+            ->assertJsonPath('meta.per_page', 2)
+            ->assertJsonCount(2, 'data');
+    }
+
+    public function test_sensor_calibrations_are_paginated(): void
+    {
+        $type = SensorType::query()->where('code', 'temp_air')->firstOrFail();
+        $sensor = Sensor::query()->create(['serial' => 'SN-CAL', 'sensor_type_id' => $type->id]);
+
+        for ($i = 1; $i <= 3; $i++) {
+            SensorCalibration::query()->create([
+                'sensor_id' => $sensor->id, 'offset' => $i, 'scale' => 1,
+                'effective_at' => now()->subDays($i),
+            ]);
+        }
+
+        $this->getJson("/api/v1/sensors/{$sensor->id}/calibrations?per_page=2")->assertOk()
+            ->assertJsonPath('meta.total', 3)
+            ->assertJsonCount(2, 'data');
     }
 }

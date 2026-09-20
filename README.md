@@ -29,7 +29,7 @@ URL: API `http://localhost:8080/api/v1`, OpenAPI UI `http://localhost:8080/docs/
 (JSON `http://localhost:8080/docs/api.json`), frontend `http://localhost:3000`, DB `localhost:5434`.
 ERD: `docs/erd.mmd` (sumber) + `docs/erd.svg` (gambar) + daftar index di `docs/ERD.md`; alur di `docs/data-flow.mmd` (Mermaid — ter-render otomatis di GitHub; sumber ikut di-commit per §C).
 Simulator: `API_URL=... python simulator/simulate.py --all --mode normal|offline|duplicate|heartbeat` (kunci di `backend/database/seeders/WeatherSeeder.php`).
-Tes backend: `DB_HOST=127.0.0.1 DB_PORT=5434 ./vendor/bin/phpunit` (19 tes: auth, ingest, lifecycle, sensor, dedup, kalibrasi).
+Tes backend: `DB_HOST=127.0.0.1 DB_PORT=5434 ./vendor/bin/phpunit` (41 tes: auth, ingest, lifecycle, sensor, dedup, kalibrasi, pagination, kontrak error `code`, 8 kasus F.3).
 
 ## Login dashboard
 
@@ -52,11 +52,13 @@ Narrow reading + dual `raw_value`/`value` (imutabel vs terkalibrasi); soft-delet
 - Seeder 7 hari memakai langkah **5 menit** (~42 rb baris), bukan 1/menit (~184 jt/tahun pada skala 50 device). Alasan: seed 1/menit untuk review tidak praktis (lambat, berat); chart 7 hari tetap penuh dan rapat pada densitas ini. Densitas 1/menit diwakili simulator live + perhitungan skala di `JAWABAN.md` §C.
 - `ts` masa depan diterima (drift tercatat via `received_at`). `device_id` tak dikenal → 401 tanpa membedakan dari kredensial salah (disengaja, anti-enumerasi).
 - Gap chart = garis putus, rain gap = bar absen. Wind rose memakai agregat `wind_dir` vector-mean per bucket.
-- `GET /sensor-types` dan `GET /locations` tidak dipaginasi (kardinalitas kecil, <100 baris); semua list lain paginated.
+- Semua endpoint list dipaginasi (device, sensor, sensor-type, calibration, location) via paginator default `?page&per_page` → `{data,links,meta}`.
 - Format response memakai **default Laravel**, bukan envelope kustom seperti disarankan §E.1: resource → `{data}` (+`links`/`meta` paginator),
-  endpoint lain objek mentah, error → `{"message"}` (`{"message","errors"}` untuk 422), `request_id` hanya di header `X-Request-Id`.
-  Alasan: konsistensi dengan konvensi framework (terdokumentasi, langsung dikenal tooling/client). Trade-off: tidak ada
-  `code` machine-readable per §E.1 — klien membedakan error via HTTP status + `message`.
+  endpoint lain objek mentah, `request_id` hanya di header `X-Request-Id`. Alasan: konsistensi dengan konvensi framework
+  (terdokumentasi, langsung dikenal tooling/client).
+- Setiap error punya `code` machine-readable yang stabil per §E.1 (`{"message","code"}`, plus `errors` per-field untuk validasi 422):
+  mis. `validation_failed`, `unauthenticated`, `forbidden`, `not_found`, `conflict`, `unprocessable_entity`, `rate_limited`.
+  Klien bercabang dari `code`, bukan `message`.
 
 ## Belum selesai / lanjut
 

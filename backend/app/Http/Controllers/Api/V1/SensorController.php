@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\AttachSensorRequest;
+use App\Http\Requests\ListCalibrationsRequest;
 use App\Http\Requests\ListSensorsRequest;
 use App\Http\Requests\ListSensorTypesRequest;
 use App\Http\Requests\StoreCalibrationRequest;
@@ -184,12 +185,14 @@ class SensorController extends Controller
         return new SensorInstallationResource($installation);
     }
 
-    public function indexCalibrations(int $id): AnonymousResourceCollection
+    public function indexCalibrations(ListCalibrationsRequest $request, int $id): AnonymousResourceCollection
     {
         $sensor = Sensor::query()->find($id) ?? abort(404, 'Sensor not found.');
 
         return SensorCalibrationResource::collection(
-            $sensor->calibrations()->orderByDesc('effective_at')->get()
+            $sensor->calibrations()
+                ->orderByDesc('effective_at')
+                ->paginate($request->validated()['per_page'] ?? 15)
         );
     }
 

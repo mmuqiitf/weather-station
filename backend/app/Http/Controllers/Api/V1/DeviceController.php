@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\ListDevicesRequest;
+use App\Http\Requests\ListLocationsRequest;
 use App\Http\Requests\StoreDeviceRequest;
 use App\Http\Requests\UpdateDeviceRequest;
 use App\Http\Resources\DeviceResource;
@@ -113,9 +114,11 @@ class DeviceController extends Controller
         return response()->json(['device_id' => $device->device_id, 'api_key_plain' => $plainKey]);
     }
 
-    public function indexLocations(): AnonymousResourceCollection
+    public function indexLocations(ListLocationsRequest $request): AnonymousResourceCollection
     {
-        return LocationResource::collection(Location::query()->orderBy('name')->get());
+        return LocationResource::collection(
+            Location::query()->orderBy('name')->paginate($request->validated()['per_page'] ?? 15)
+        );
     }
 
     public function health(string $id): JsonResponse

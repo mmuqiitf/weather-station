@@ -6,7 +6,10 @@ Dokumentasi OpenAPI (Scramble, auto-generated): UI `http://localhost:8080/docs/a
 ## Konvensi umum
 
 Format response mengikuti default Laravel. API Resource tunggal/koleksi: `{data}`.
-Error: `{"message": "…"}` + status yang tepat; validasi: `{"message": "…", "errors": {"field": ["reason"]}}`.
+Error: `{"message": "…", "code": "…"}` + status yang tepat; validasi:
+`{"message": "…", "code": "validation_failed", "errors": {"field": ["reason"]}}`.
+`code` machine-readable dan stabil (klien bercabang dari `code`, bukan `message`):
+`bad_request|unauthenticated|forbidden|not_found|method_not_allowed|conflict|token_mismatch|validation_failed|unprocessable_entity|rate_limited|server_error|service_unavailable`.
 Status: `200|201|204|207|400|401|403|404|409|422|429|500`. `request_id` UUID hanya di header `X-Request-Id`
 (tidak di body) — untuk tracing, sertakan header itu saat melapor.
 Pagination list: paginator default Laravel `?page&per_page` →
@@ -52,7 +55,8 @@ Gagal validasi domain (mis. tipe sensor tak dikenal): 422 `{"message": "…", "e
 `PATCH /sensors/{id}` `{serial?}` → `{data}`, `DELETE /sensors/{id}` → 204 (409 bila masih terpasang).
 `POST /devices/{id}/sensors` `{sensor_id,installed_at?}` → 201 `{data}` installation (409 bila sensor terpasang di device lain; slot tipe sama yang terbuka ditutup otomatis).
 `DELETE /devices/{id}/sensors/{sensorId}` → 200 `{data}` installation dengan `removed_at` terisi (404 bila tidak ada instalasi aktif).
-`POST /sensors/{id}/calibrations` `{offset?,scale?,effective_at}` → 201; `GET /sensors/{id}/calibrations` → list desc `effective_at`. Nilai mentah tak pernah diubah; koreksi `value = offset + scale*raw` per `effective_at ≤ device_time`.
+`POST /sensors/{id}/calibrations` `{offset?,scale?,effective_at}` → 201; `GET /sensors/{id}/calibrations?page&per_page` → paginator default desc `effective_at`. Nilai mentah tak pernah diubah; koreksi `value = offset + scale*raw` per `effective_at ≤ device_time`.
+`GET /locations?page&per_page` → paginator default `{data: [{id,name,latitude,longitude,altitude_m}], …}` urut `name`.
 
 ## Query data
 
@@ -176,22 +180,23 @@ Contoh agregat `?device_id=WS-GRT-001&sensor_type=temp_air&interval=1h&agg=avg`:
 }
 ```
 
-### 7. Format error standar (seluruh API, default Laravel)
+### 7. Format error standar (seluruh API)
 
 ```json
-{ "message": "…", "errors": { "name": ["required"] } }
+{ "message": "…", "code": "validation_failed", "errors": { "name": ["required"] } }
 ```
 
-Validasi (Form Request): `{"message", "errors"}` per-field, status 422.
-Error domain: `{"message"}` + status yang tepat (404 device/sensor tak dikenal,
-409 konflik pemasangan, 422 transisi status ilegal/rentang terlalu besar,
-401 kredensial salah, 403 device_id ≠ auth, 429 rate limit).
-Tanpa token dashboard: 401 `{"message": "Unauthenticated."}`.
+Validasi (Form Request): `{"message", "code":"validation_failed", "errors"}` per-field, status 422.
+Error domain: `{"message", "code"}` + status yang tepat; `code` stabil dan machine-readable
+(404 device/sensor tak dikenal → `not_found`, 409 konflik pemasangan → `conflict`,
+422 transisi status ilegal/rentang terlalu besar → `unprocessable_entity`,
+401 kredensial salah → `unauthenticated`, 403 device_id ≠ auth → `forbidden`, 429 → `rate_limited`).
+Tanpa token dashboard: 401 `{"message":"Unauthenticated.","code":"unauthenticated"}`.
 
 ## Format error standar
 
-`{"message":"…","errors":{"field":["reason"]}}` untuk validasi (422);
-`{"message":"…"}` + HTTP status untuk kasus domain.
+`{"message":"…","code":"validation_failed","errors":{"field":["reason"]}}` untuk validasi (422);
+`{"message":"…","code":"…"}` + HTTP status untuk kasus domain. `code` konsisten di seluruh API.
 
 ## Kasus F.3 — perlakuan sistem
 
@@ -200,6 +205,6 @@ Tanpa token dashboard: 401 `{"message": "Unauthenticated."}`.
 3. `humidity=150` (rentang 0–100): `quality=out_of_range`, disimpan dengan flag; agregat mengikutkan tapi frontend boleh menyembunyikan flag non-ok.
 4. `rain_counter` 1043→5 (restart): `mm_delta = new (5×0.2mm)`, bukan minus; restart ganda dalam satu bucket tetap benar karena delta per-baris lalu `SUM`.
 5. Payload identik 3×: `unique(device,time,sensor_type)` + `insertOrIgnore` → pertama 201, berikutnya 200 `{"duplicates":1,…}`.
-6. `device_id` tak terdaftar: 401 `{"message": "Invalid or missing device credentials."}` (tanpa token valid tak bisa dibedakan dari salah — disengaja).
+6. `device_id` tak terdaftar: 401 `{"message": "Invalid or missing device credentials.", "code": "unauthenticated"}` (tanpa token valid tak bisa dibedakan dari salah — disengaja).
 7. `solar_rad` absen: tidak ada baris (bukan null) — payload jarang = sensor error, bukan nol.
 8. Batch 500 record: batas `MAX_BATCH=500` → 422 bila lebih; satu batch = bulk `insertOrIgnore` per payload; 180 record offline 3 jam diproses sekaligus dan cagg memperbaiki bucket lama saat refresh.
