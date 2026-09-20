@@ -157,6 +157,9 @@ class ReadingController extends Controller
         $isWindDir = $sensorType === 'wind_dir' && $agg === 'avg';
 
         $rows = (clone $query)
+            // Drop the inherited orderBy(device_time): grouping by bucket makes
+            // the raw column illegal in ORDER BY (Postgres 42803).
+            ->reorder()
             ->selectRaw("{$bucket} AS bucket, sensor_type_id, ".($isWindDir
                 ? 'AVG(SIN(RADIANS(value))) AS s, AVG(COS(RADIANS(value))) AS c, COUNT(*) AS n'
                 : "{$valueExpr} AS v, COUNT(*) AS n"))
