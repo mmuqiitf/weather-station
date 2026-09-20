@@ -92,13 +92,13 @@ export default function OverviewPage() {
         (d.location ?? "").toLowerCase().includes(q)
       )
     })
-  }, [data, query, filter])
+  }, [overview?.devices, query, filter])
 
   const avgTemp = useMemo(() => {
     const temps = (overview?.devices ?? []).filter((d) => d.temp_air != null)
     if (temps.length === 0) return null
     return temps.reduce((s, d) => s + (d.temp_air ?? 0), 0) / temps.length
-  }, [data])
+  }, [overview?.devices])
 
   return (
     <AppShell

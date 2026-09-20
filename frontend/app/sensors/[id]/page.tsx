@@ -93,6 +93,7 @@ export default function SensorDetailPage({
     [calibrations.data]
   )
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- value types vary per column
   const calColumns = useMemo<ColumnDef<typeof calFeatures, Calibration, any>[]>(
     () => [
       calHelper.accessor("effective_at", {

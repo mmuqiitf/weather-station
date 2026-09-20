@@ -35,7 +35,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { useDebouncedValue } from "@/hooks/use-debounced-value"
-import { api, type Paginated, type Resource } from "@/lib/api"
+import { api, type Paginated } from "@/lib/api"
 import type { DeviceDetail, Sensor, SensorType } from "@/lib/types"
 
 const ALL = "all"
