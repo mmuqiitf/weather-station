@@ -42,6 +42,8 @@ erDiagram
         decimal_5_2 battery_v "nullable"
         int rssi "nullable"
         bigint uptime_s "nullable"
+        timestamptz created_at
+        timestamptz updated_at
     }
     sensor_types {
         bigint id PK
@@ -50,11 +52,15 @@ erDiagram
         decimal_12_4 min_value "nullable"
         decimal_12_4 max_value "nullable"
         int precision
+        timestamptz created_at
+        timestamptz updated_at
     }
     sensors {
         bigint id PK
         varchar serial UK "physical-instance"
         bigint sensor_type_id FK
+        timestamptz created_at
+        timestamptz updated_at
     }
     sensor_installations {
         bigint id PK
@@ -62,6 +68,8 @@ erDiagram
         bigint device_id FK
         timestamptz installed_at
         timestamptz removed_at "null-means-open"
+        timestamptz created_at
+        timestamptz updated_at
     }
     sensor_calibrations {
         bigint id PK
@@ -69,32 +77,42 @@ erDiagram
         decimal_12_4 offset
         decimal_12_6 scale
         timestamptz effective_at "valid-since"
+        timestamptz created_at
+        timestamptz updated_at
     }
     sensor_readings {
-        bigint id PK
+        bigint id PK "dropped-on-timescale-hypertable"
         bigint device_id FK
         bigint sensor_type_id FK
         bigint sensor_id FK "nullable"
-        timestamptz device_time "series-axis-UTC"
+        timestamptz device_time "series-axis-UTC, hypertable-partition"
         timestamptz received_at "server-clock"
         decimal_14_4 raw_value "immutable"
         decimal_14_4 value "calibrated"
         decimal_12_4 mm_delta "rain-only"
         varchar quality "quality-flag"
+        timestamptz created_at
+        timestamptz updated_at
     }
     reading_aggregates {
         bigint id PK
         bigint device_id FK
         bigint sensor_type_id FK
-        varchar interval "hour-or-day"
+        varchar interval "plain-postgres-fallback"
         timestamptz bucket
         decimal avg_value "nullable"
         decimal min_value "nullable"
         decimal max_value "nullable"
         decimal sum_value "nullable"
         int sample_count
+        timestamptz created_at
+        timestamptz updated_at
     }
     users {
         bigint id PK "dashboard-auth"
+        varchar name
         varchar email UK
+        varchar password "hashed"
+        timestamptz created_at
+        timestamptz updated_at
     }

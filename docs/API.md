@@ -1,6 +1,6 @@
 # API.md — Weather Station Platform (`/api/v1`)
 
-Base URL: `http://localhost:8080/api/v1`. All timestamps stored UTC ISO-8601, displayed WIB (Asia/Jakarta) in frontend.
+Base URL: `http://localhost:8080/api/v1`. Semua timestamp disimpan dalam UTC (ISO-8601) dan ditampilkan dalam WIB (Asia/Jakarta) di frontend.
 Dokumentasi OpenAPI (Scramble, auto-generated): UI `http://localhost:8080/docs/api`, JSON `http://localhost:8080/docs/api.json`.
 
 ## Konvensi umum
@@ -41,7 +41,7 @@ management/query. Tanpa token → 401 `{"message":"Unauthenticated.","code":"una
 ## Ingestion (device)
 
 `POST /ingest/telemetry` (201 baru, 200 duplikat, 422 validasi, 401 kredensial, 403 device_id≠auth) dan
-`POST /ingest/telemetry/batch` (`batch[1..500]`, 207 bila sebagian duplikat/ditolak) serta `POST /ingest/heartbeat` (200 `{received:true}`).
+`POST /ingest/telemetry/batch` (`batch[1..500]`, 207 bila sebagian duplikat/ditolak) serta `POST /ingest/heartbeat` (200 `{data:{received:true}}`).
 
 Sukses: `{data:{accepted:1,duplicates:0,rejected:[]}}` (201; duplikat → 200).
 Sukses sebagian batch: `{data:{accepted:8,duplicates:2,rejected:[]}}` (207).
@@ -163,6 +163,20 @@ untuk membuat lokasi sekalian. → `201`:
 `status`/`location_id`/`q` = filter persis/substring. `is_online` = ada payload ≤15 menit.
 `last_seen_at` = UTC ISO-8601 (frontend konversi ke WIB).
 
+`GET /devices/WS-GRT-001` (boleh juga id numerik) → `200`:
+
+```json
+{
+  "data": {
+    "id": 1, "device_id": "WS-GRT-001", "name": "Stasiun Garut", "status": "active",
+    "is_online": true, "last_seen_at": "2026-09-19T08:00:00Z", "firmware_version": "1.4.2",
+    "location": { "id": 1, "name": "Garut", "latitude": -7.2167, "longitude": 107.9, "altitude_m": 717 }
+  }
+}
+```
+
+`api_key_plain` **tidak** ikut di detail — secret hanya muncul sekali saat create/rotate.
+
 ### 5. CRUD sensor + pemasangan + kalibrasi
 
 `POST /sensors` `{ "serial": "SN-TEMP-042", "sensor_type_id": 1 }` → `201`
@@ -177,6 +191,22 @@ sensor yang masih terpasang di device lain → `409`).
 `{ "offset": 0.5, "scale": 1.0, "effective_at": "2026-09-19T00:00:00Z" }` → `201`;
 koreksi `value = offset + scale × raw` berlaku untuk `device_time ≥ effective_at`;
 `raw_value` tersimpan tidak pernah berubah.
+
+Respons `POST /devices/{id}/sensors` → `201`:
+
+```json
+{ "data": { "id": 12, "sensor_id": 7, "device_id": 3, "installed_at": "2026-06-01T00:00:00Z", "removed_at": null } }
+```
+
+Respons `DELETE /devices/{id}/sensors/{sensorId}` → `200` dengan `removed_at` terisi
+(mis. `{ "data": { "id": 12, "sensor_id": 7, "device_id": 3, "installed_at": "2026-06-01T00:00:00Z", "removed_at": "2026-09-19T10:00:00Z" } }`);
+riwayatnya tidak dihapus, hanya ditutup.
+
+Respons `POST /sensors/{id}/calibrations` → `201`:
+
+```json
+{ "data": { "id": 5, "sensor_id": 7, "offset": 0.5, "scale": 1.0, "effective_at": "2026-09-19T00:00:00Z" } }
+```
 
 ### 6. Time-series `GET /readings` — efisiensi payload
 
@@ -226,7 +256,7 @@ dibangun terpusat oleh typed `render()` callbacks di `bootstrap/app.php` dari en
 2. `temp_air=-999`: kode error sensor → `quality=suspect`, nilai disimpan (tidak dibuang).
 3. `humidity=150` (rentang 0–100): `quality=out_of_range`, disimpan dengan flag; agregat mengikutkan tapi frontend boleh menyembunyikan flag non-ok.
 4. `rain_counter` 1043→5 (restart): `mm_delta = new (5×0.2mm)`, bukan minus; restart ganda dalam satu bucket tetap benar karena delta per-baris lalu `SUM`.
-5. Payload identik 3×: `unique(device,time,sensor_type)` + `insertOrIgnore` → pertama 201, berikutnya 200 `{"duplicates":1,…}`.
-6. `device_id` tak terdaftar: 401 `{"message": "Invalid or missing device credentials.", "code": "unauthenticated"}` (tanpa token valid tak bisa dibedakan dari salah — disengaja).
+5. Payload identik 3×: `unique(device,time,sensor_type)` + `insertOrIgnore` → pertama 201, berikutnya 200 `{"data":{"accepted":0,"duplicates":1,"rejected":[]}}`.
+6. `device_id` tak terdaftar: 401 `{"message":"Invalid or missing device credentials.","code":"unauthenticated","request_id":"…"}` (tanpa token valid tak bisa dibedakan dari salah — disengaja).
 7. `solar_rad` absen: tidak ada baris (bukan null) — payload jarang = sensor error, bukan nol.
 8. Batch 500 record: batas `MAX_BATCH=500` → 422 bila lebih; satu batch = bulk `insertOrIgnore` per payload; 180 record offline 3 jam diproses sekaligus dan cagg memperbaiki bucket lama saat refresh.
